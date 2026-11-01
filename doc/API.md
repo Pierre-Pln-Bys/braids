@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.6.0` (milestone M3). The API is JSON-RPC 2.0
+Status: draft, API version `0.7.0` (milestone M3). The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -57,7 +57,7 @@ Objects
      "capabilities": {"editWindowSec": -1 (unlimited) | 0 (none) | seconds,
                       "pinChat", "archiveChat", "pinMessage",
                       "limitedReactions", "readReceiptsPerMessage",
-                      "avatars", "descriptions", "joinChat"}}
+                      "avatars", "descriptions", "joinChat", "muteChat"}}
 
 **Chat**
 
@@ -67,7 +67,9 @@ Objects
      "lastMessage": Message | null, "typing": [userId]}
 
 Protocols report unread state per chat, not counts, so there is no unread
-count yet.
+count yet. `isMuted` is braids' own setting when one was made with
+`chats.mute`, else the messenger's; muted chats send no `notification`
+(except for mentions).
 
 **Message**
 
@@ -77,7 +79,14 @@ count yet.
      "file": {"id", "path", "name", "mimeType",
               "status": "none|notDownloaded|downloading|downloaded|failed"} | null,
      "reactions": {"counts": {emoji: n}, "senders": {userId: emoji}, "own": emoji},
-     "mentions": {displayName: userId}, "link"}
+     "mentions": {displayName: userId}, "link", "system"}
+
+`system` is non-empty for group events (someone joined, left, was added,
+renamed the group, ...): a phrase to follow the sender's name, e.g.
+`"joined"`, `"added Pam, Jim"`, `"changed the group name to Sales"`
+(several joined by `"; "`). Clients show these as event lines rather than
+bubbles; `text` keeps the protocol's form (`[Joined]`). They send no
+`notification`.
 
 `text` uses the internal markdown-like format (`*bold*`, `_italic_`,
 `~strike~`, `` `code` ``, mentions as `@Name` / `@[Name With Spaces]`);
@@ -104,6 +113,7 @@ Methods
 | `chats.join` | `accountId`, `link` (invite link, public name or address: `https://t.me/+…`, `@name`, `https://chat.whatsapp.com/…`, `#room:server`, `https://matrix.to/#/…`; capability `joinChat`) | `{}`, then `chat.joined` |
 | `chats.pin` | `accountId`, `chatId`, `isPinned`? (true) | `{}` (error 4 if unsupported) |
 | `chats.archive` | `accountId`, `chatId`, `isArchived`? (true) | `{}` (error 4 if unsupported) |
+| `chats.mute` | `accountId`, `chatId`, `isMuted`? (true) | `{}`, then `chat.updated`; kept by braidsd for every protocol (the messenger's own setting is not changed) |
 | `chats.delete` | `accountId`, `chatId` | `{}`, then `chat.removed` (Matrix: leave + forget) |
 | `contacts.list` | `accountId` | `[Contact]` |
 | `avatars.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, avatars: {id: path}}` with the known ones (`""`: no picture); the others are fetched once per session and arrive as `avatar.updated` |
@@ -194,7 +204,4 @@ Known limitations
 
 - `accounts.authCancel` during a setup aborts it (also while waiting for a QR
   scan); for an account it only skips the current prompt.
-- Removing an account deletes local data but does not log out the device
-  remotely yet.
-- No mute/unmute request (protocols do not offer one yet); mute state is
-  reported.
+- `chats.mute` is braids-only: other devices keep the messenger's setting.

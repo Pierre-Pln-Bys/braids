@@ -9,7 +9,7 @@
   A 300 px column at >= 1280 px, an overlay sheet below.
 -->
 <script lang="ts">
-  import { Archive, ArchiveRestore, LogOut, Search, Star, StarOff, Trash2, X } from '@lucide/svelte';
+  import { Archive, ArchiveRestore, Bell, BellOff, LogOut, Search, Star, StarOff, Trash2, X } from '@lucide/svelte';
   import { openLink } from '../lib/actions';
   import * as api from '../lib/api';
   import { linkify } from '../lib/format';
@@ -94,6 +94,9 @@
           onclick={() => store.setCategory(chat, store.category(chat) === 'favorite' ? 'default' : 'favorite')}>
           {#if store.category(chat) === 'favorite'}<StarOff size={18} />Unfavorite{:else}<Star size={18} />Favorite{/if}
         </button>
+        <button class:on={chat.isMuted} onclick={() => store.setMuted(chat, !chat.isMuted)}>
+          {#if chat.isMuted}<Bell size={18} />Unmute{:else}<BellOff size={18} />Mute{/if}
+        </button>
         <button onclick={() => store.setCategory(chat, store.category(chat) === 'archived' ? 'default' : 'archived')}>
           {#if store.category(chat) === 'archived'}<ArchiveRestore size={18} />Unarchive{:else}<Archive size={18} />Archive{/if}
         </button>
@@ -101,10 +104,6 @@
           {#if chat.isGroup}<LogOut size={18} />Leave{:else}<Trash2 size={18} />Delete{/if}
         </button>
       </div>
-
-      {#if chat.isMuted}
-        <div class="banner info">Notifications for this chat are muted (change it in the {protocolMeta(account.protocol).name} app).</div>
-      {/if}
 
       {#if chat.isGroup}
         <div class="section">Members{#if members.length} · {members.length}{/if}</div>

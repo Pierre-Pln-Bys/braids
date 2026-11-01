@@ -152,6 +152,22 @@ def main():
         expect_error(lambda: d.call("chats.list", {"accountId": 5}), -32602, "invalid param type rejected")
         d.call("messages.markRead", {"accountId": account_id, "chatId": group["id"], "msgId": msgs[-1]["id"]})
         check(d.call("contacts.list", {"accountId": account_id}), "contacts.list")
+
+        # group events are flagged as system messages
+        full = d.call("messages.get", {"accountId": account_id, "chatId": group["id"], "limit": 50})["messages"]
+        joined = [m for m in full if m["text"] == "[Joined]"]
+        check(len(joined) == 1 and joined[0]["system"] == "joined", "group event marked as system message")
+        check(all(m["system"] == "" for m in full if m["text"] != "[Joined]"), "normal messages not system")
+
+        # braids' own mute setting, kept across restarts
+        check(account["capabilities"]["muteChat"], "mute capability")
+        check(not group["isMuted"], "group not muted initially")
+        d.call("chats.mute", {"accountId": account_id, "chatId": group["id"], "isMuted": True})
+        d.wait_event("chat.updated", lambda p: p["id"] == group["id"] and p["isMuted"])
+        check(d.call("chats.get", {"accountId": account_id, "chatId": group["id"]})["isMuted"], "chat muted")
+        check(os.stat(os.path.join(profile_dir, "braids-chats.json")).st_mode & 0o077 == 0, "mute file private")
+        expect_error(lambda: d.call("chats.mute", {"accountId": account_id, "chatId": "nope"}), 2,
+                     "mute unknown chat rejected")
         check(d.close() == 0, "clean exit")
 
         # restart: account is loaded from disk and logs in
@@ -160,6 +176,11 @@ def main():
         check([a["accountId"] for a in accounts] == [account_id], "account loaded after restart")
         wait_until(lambda: len(d.call("chats.list")) >= 2, "chats synced after restart")
         check(True, "chats available after restart")
+        group = d.call("chats.get", {"accountId": account_id, "chatId": group["id"]})
+        check(group["isMuted"], "mute kept after restart")
+        d.call("chats.mute", {"accountId": account_id, "chatId": group["id"], "isMuted": False})
+        d.wait_event("chat.updated", lambda p: p["id"] == group["id"] and not p["isMuted"])
+        check(True, "chat unmuted")
 
         # removal
         d.call("accounts.remove", {"accountId": account_id})

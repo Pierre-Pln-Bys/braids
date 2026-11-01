@@ -6,7 +6,7 @@
 
 // Chat and message actions shared by the chat list, conversation and info panel.
 
-import { Archive, ArchiveRestore, MailCheck, Star, StarOff, Trash2 } from '@lucide/svelte';
+import { Archive, ArchiveRestore, Bell, BellOff, MailCheck, Star, StarOff, Trash2 } from '@lucide/svelte';
 import * as api from './api';
 import { inviteLinkProtocol } from './protocols';
 import { splitKey, store } from './store.svelte';
@@ -30,6 +30,11 @@ export function chatMenu(c: Chat): MenuItem[] {
     label: category === 'favorite' ? 'Remove from favorites' : 'Add to favorites',
     icon: category === 'favorite' ? StarOff : Star,
     run: () => store.setCategory(c, category === 'favorite' ? 'default' : 'favorite'),
+  });
+  items.push({
+    label: c.isMuted ? 'Unmute' : 'Mute',
+    icon: c.isMuted ? Bell : BellOff,
+    run: () => store.setMuted(c, !c.isMuted),
   });
   items.push({
     label: category === 'archived' ? 'Unarchive' : 'Archive',

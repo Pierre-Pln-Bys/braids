@@ -19,6 +19,7 @@ export interface Capabilities {
   avatars: boolean;
   descriptions: boolean;
   joinChat: boolean;
+  muteChat: boolean;
 }
 
 export interface Account {
@@ -58,6 +59,7 @@ export interface Message {
   reactions: { counts: Record<string, number>; senders: Record<string, string>; own: string };
   mentions: Record<string, string>;
   link: string;
+  system: string; // group event ("joined", "added Pam"), shown as a line; '' for messages
 }
 
 export interface Chat {

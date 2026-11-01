@@ -291,6 +291,7 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
 
         static std::vector<std::pair<std::string, std::string>> groupMessages =
         {
+          { "Andy", "[Joined]" }, // a group event, shown as a system line
           { "Stanley", "Maybe you should go into your office, close the door, "
             "and make some calls about jobs?" },
           { "Michael", "I have a job." },

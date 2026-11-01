@@ -287,6 +287,12 @@ def main():
         check(joined["success"] and joined["chatId"] == public_room, "joined public room by alias")
         wait_until(lambda: [c for c in d.call("chats.list") if c["id"] == public_room], "joined room in chat list")
         check(True, "joined room in chat list")
+        # membership events are system messages (the own join here)
+        def own_join():
+            msgs = d.call("messages.get", {"accountId": account_id, "chatId": public_room, "limit": 30})["messages"]
+            return [m for m in msgs if m["system"] == "joined" and m["isOutgoing"]]
+        wait_until(own_join, "own join shown as a system message")
+        check(True, "own join shown as a system message")
         d.call("chats.join", {"accountId": account_id, "link": "not a room"})
         failed = d.wait_event("chat.joined", lambda p: not p["success"], timeout=30)
         check("Not a Matrix room" in failed["error"], "invalid join link reported")

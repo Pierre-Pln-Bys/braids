@@ -26,7 +26,7 @@
 #include "timeutil.h"
 
 // semver of the API; clients must match the major version
-static const std::string s_ApiVersion = "0.6.0";
+static const std::string s_ApiVersion = "0.7.0";
 static const int64_t s_StartTime = TimeUtil::GetCurrentTimeMSec();
 
 static const char* AuthStepToString(AuthStep p_Step)
@@ -119,6 +119,8 @@ bool Core::Init(std::string& p_Error)
   {
     return GetProtocol(p_AccountId);
   }));
+
+  m_ChatModel->SetProfilesDir(m_ProfilesDir);
 
   MessageCache::SetMessageHandler([this](std::shared_ptr<ServiceMessage> p_ServiceMessage)
   {
@@ -316,6 +318,12 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
   {
     m_ChatModel->ArchiveChat(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
                              ParamBool(params, "isArchived", true));
+    p_Reply.Ok(json::object());
+  }
+  else if (p_Method == "chats.mute")
+  {
+    m_ChatModel->MuteChat(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
+                          ParamBool(params, "isMuted", true));
     p_Reply.Ok(json::object());
   }
   else if (p_Method == "chats.delete")

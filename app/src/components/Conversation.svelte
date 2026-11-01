@@ -215,7 +215,7 @@
     const day = !prev || !isSameDay(prev.time, m.time);
     const unreadHere = list?.firstUnreadId === m.id;
     const nextUnread = next && list?.firstUnreadId === next.id;
-    const same = (a?: Message, b?: Message) => !!a && !!b && a.senderId === b.senderId && a.isOutgoing === b.isOutgoing && Math.abs(b.time - a.time) < GROUP_GAP && isSameDay(a.time, b.time);
+    const same = (a?: Message, b?: Message) => !!a && !!b && !a.system && !b.system && a.senderId === b.senderId && a.isOutgoing === b.isOutgoing && Math.abs(b.time - a.time) < GROUP_GAP && isSameDay(a.time, b.time);
     return { first: day || unreadHere || !same(prev, m), last: !!nextUnread || !same(m, next) };
   }
 </script>
@@ -295,7 +295,12 @@
             {#if list?.firstUnreadId === m.id}
               <div class="unread-marker" role="separator" data-unread-marker><span></span><b>New messages</b><span></span></div>
             {/if}
-            <MessageItem {m} {chat} {account} first={g.first} last={g.last} onJump={jumpTo} onReact={openReactions} />
+            {#if m.system}
+              <!-- group events (joined, left, renamed): a line, not a bubble -->
+              <div class="system-line" data-msg-id={m.id} title={new Date(m.time).toLocaleString()}>{store.systemLine(m)}</div>
+            {:else}
+              <MessageItem {m} {chat} {account} first={g.first} last={g.last} onJump={jumpTo} onReact={openReactions} />
+            {/if}
           {/each}
         </div>
       {/each}
@@ -359,6 +364,7 @@
   .day { display: flex; justify-content: center; padding: 10px 0 6px; position: sticky; top: 0; z-index: 2; pointer-events: none; }
   .day span { pointer-events: auto; }
   .day span { font-size: 12px; font-weight: 600; color: var(--text-muted); background: var(--bg-2); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); }
+  .system-line { text-align: center; font-size: 12px; color: var(--text-muted); padding: 6px 24px; overflow-wrap: anywhere; }
   .unread-marker { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
   .unread-marker span { flex: 1; height: 1px; background: var(--accent); opacity: 0.6; }
   .unread-marker b { font-size: 12px; font-weight: 700; color: var(--accent); }

@@ -9,7 +9,7 @@
   newest activity first, favorites with a gold avatar ring. Search by name, context menu per chat.
 -->
 <script lang="ts">
-  import { AtSign, Menu as MenuIcon, Search, SquarePen, VolumeX, X } from '@lucide/svelte';
+  import { AtSign, BellOff, Menu as MenuIcon, Search, SquarePen, X } from '@lucide/svelte';
   import { chatMenu } from '../lib/actions';
   import { listTime } from '../lib/format';
   import { bindings, comboKeys } from '../lib/keybinds.svelte';
@@ -50,6 +50,7 @@
     if (draft && key !== store.current) return { prefix: 'Draft:', prefixKind: 'draft', text: draft };
     const m = c.lastMessage;
     if (!m) return { prefix: '', prefixKind: '', text: '' };
+    if (m.system) return { prefix: '', prefixKind: '', text: store.systemLine(m) };
     const prefix = m.isOutgoing ? 'You:' : c.isGroup ? `${store.senderName(m).split(' ')[0]}:` : '';
     return { prefix, prefixKind: 'sender', text: store.previewText(m) };
   }
@@ -130,6 +131,7 @@
         class:selected
         class:cursor={i === cursor}
         class:unread={c.isUnread}
+        class:muted={c.isMuted}
         role="option"
         aria-selected={selected}
         tabindex="-1"
@@ -143,7 +145,7 @@
         <div class="body">
           <div class="line1">
             <span class="name">{store.chatName(c)}</span>
-            {#if c.isMuted}<span class="flag" title="Muted"><VolumeX size={14} /></span>{/if}
+            {#if c.isMuted}<span class="flag" title="Muted"><BellOff size={13} /></span>{/if}
             <span class="grow"></span>
             <span class="time">{listTime(c.lastActivity)}</span>
           </div>
@@ -207,6 +209,7 @@
   .grow { flex: 1; }
   .time { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
   .unread .time { color: var(--accent); }
+  .unread.muted .time { color: var(--text-muted); }
   .preview { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
   .unread .preview { color: var(--text); }
   .prefix { color: var(--text-2); font-weight: 500; }

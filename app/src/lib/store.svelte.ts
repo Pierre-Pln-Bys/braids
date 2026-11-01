@@ -117,9 +117,11 @@ class Store {
       .sort((a, b) => b.lastActivity - a.lastActivity);
   }
 
+  // unread chats per folder; muted ones count only when mentioned
   unreadCount(filter: Filter): number {
     return Object.values(this.chats).filter((c) => {
       if (!c.isUnread || !this.accounts[c.accountId]) return false;
+      if (c.isMuted && !c.isUnreadMention) return false;
       const category = this.category(c);
       if (filter.kind === 'archived') return category === 'archived';
       if (category === 'archived') return false;
@@ -144,6 +146,17 @@ class Store {
     if (this.accounts[c.accountId]?.capabilities.archiveChat && c.isArchived !== archived) {
       await api.call('chats.archive', { accountId: c.accountId, chatId: c.id, isArchived: archived }).catch((e) => this.toastError(e));
     }
+  }
+
+  // Mutes notifications (and unread counts) of a chat: braids' own setting,
+  // kept by braidsd for every messenger.
+  async setMuted(c: Chat, isMuted: boolean) {
+    const key = chatKey(c.accountId, c.id);
+    if (this.chats[key]) this.chats[key].isMuted = isMuted;
+    await api.call('chats.mute', { accountId: c.accountId, chatId: c.id, isMuted }).catch((e) => {
+      if (this.chats[key]) this.chats[key].isMuted = !isMuted;
+      this.toastError(e);
+    });
   }
 
   get currentChat(): Chat | null {
@@ -201,9 +214,19 @@ class Store {
     return 'Original message';
   }
 
+  // A group event as a line: "Pam joined", "You added Jim"; without a person
+  // (e.g. sent by the group itself) just "Changed the group name to …".
+  systemLine(m: Message): string {
+    const chat = this.chats[chatKey(m.accountId, m.chatId)];
+    const who = m.isOutgoing ? 'You' : m.senderId && m.senderId !== m.chatId ? this.senderName(m) : '';
+    if (!who || (chat && who === this.chatName(chat))) return m.system.charAt(0).toUpperCase() + m.system.slice(1);
+    return `${who} ${m.system}`;
+  }
+
   previewText(m: Message | null): string {
     if (!m) return '';
     if (m.isDeleted) return 'Message deleted';
+    if (m.system) return this.systemLine(m);
     const text = plainText(m.text);
     if (m.file) return text ? `${fileLabel(m)}: ${text}` : `${fileLabel(m)}: ${m.file.name}`;
     return text;

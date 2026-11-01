@@ -33,6 +33,9 @@ public:
 
   ChatModel(const EventSink& p_EventSink, const ProtocolGetter& p_ProtocolGetter);
 
+  // where per-account braids state (mute settings) is kept: <dir>/<accountId>/
+  void SetProfilesDir(const std::string& p_ProfilesDir);
+
   // Protocol notifications (also from MessageCache)
   void OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessage);
 
@@ -67,6 +70,7 @@ public:
   void CreateChat(const std::string& p_AccountId, const std::string& p_UserId);
   void PinChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsPinned);
   void ArchiveChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsArchived);
+  void MuteChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsMuted);
   void DeleteChat(const std::string& p_AccountId, const std::string& p_ChatId);
   void SetCurrentChat(const std::string& p_AccountId, const std::string& p_ChatId);
   void FindMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
@@ -96,6 +100,9 @@ private:
     std::unordered_set<std::string> avatarsRequested;
     std::unordered_map<std::string, std::string> descriptions; // user or chat id -> text ("" none)
     std::unordered_set<std::string> descriptionsRequested;
+    // braids' own mute setting per chat, overrides the messenger's (kept in
+    // <profile>/braids-chats.json)
+    std::unordered_map<std::string, bool> muted;
     int64_t connectTime = 0;
   };
 
@@ -141,6 +148,10 @@ private:
   std::map<std::string, std::string> ParseMentions(const std::string& p_AccountId, const std::string& p_ChatId,
                                                    const std::string& p_Text);
 
+  bool IsMuted(const AccountState& p_Account, const ChatInfo& p_ChatInfo) const;
+  void LoadAccountState(const std::string& p_AccountId);
+  void SaveAccountState(const std::string& p_AccountId);
+
   void MarkChatDirty(const std::string& p_AccountId, const std::string& p_ChatId);
   void FlushDirtyChats();
   void Emit(const std::string& p_Method, const json& p_Params);
@@ -166,4 +177,5 @@ private:
   std::set<std::pair<std::string, std::string>> m_DirtyChats;
   std::map<std::pair<std::string, std::string>, std::string> m_EmittedChats; // last chat.updated per chat
   std::pair<std::string, std::string> m_CurrentChat;
+  std::string m_ProfilesDir;
 };

@@ -448,10 +448,6 @@ func (conn *MxConn) handleJoinedRoom(ctx context.Context, roomID id.RoomID, room
 	var msgs []*OutMsg
 	for _, evt := range room.Timeline.Events {
 		evt.RoomID = roomID
-		if evt.StateKey != nil {
-			continue
-		}
-
 		msg := conn.handleTimelineEvent(ctx, evt, modeSync)
 		if msg != nil {
 			msgs = append(msgs, msg)

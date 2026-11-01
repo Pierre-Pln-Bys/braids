@@ -95,6 +95,7 @@ try {
   await page.getByRole('option', { name: /The Office/ }).click();
   await page.locator('[data-msg-id]').first().waitFor();
   check((await page.locator('.msg .sender').count()) > 0, 'group shows sender names');
+  check((await page.locator('.system-line').first().textContent()) === 'Andy joined', 'group event shown as a system line');
   await composer.fill('Hello *team* `code`');
   await composer.press('Enter');
   const own = page.locator('.msg.own').last();
@@ -244,6 +245,21 @@ try {
   check((await page.getByRole('option').count()) === 1, 'favorites folder');
   await shot('favorites');
   await page.getByRole('button', { name: 'All chats' }).click();
+
+  // mute: braids' own setting, shown in the list
+  const pamRow = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Pam$/ }) });
+  await pamRow.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Mute', exact: true }).click();
+  await pamRow.locator('.flag[title=Muted]').waitFor();
+  check(true, 'muted chat marked in the list');
+  await page.getByRole('option', { name: /The Office/ }).click();
+  await page.locator('.system-line').first().scrollIntoViewIfNeeded();
+  await shot('mute-and-system-line');
+  await pamRow.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Unmute' }).click();
+  await pamRow.locator('.flag[title=Muted]').waitFor({ state: 'detached' });
+  check(true, 'chat unmuted');
+
   await page.getByRole('option', { name: /Jim/ }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Archive' }).click();
   check((await page.getByRole('option', { name: /Jim/ }).count()) === 0, 'archived chat leaves the inbox');

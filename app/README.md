@@ -93,6 +93,6 @@ Known gaps (v1)
 ---------------
 
 - Unread state per chat is a dot: protocols report unread state, not counts.
-- No mute toggle (not in the API yet); the mute state is shown.
+- Muting is braids-only (not synced to the messenger's other devices).
 - The message list is not virtualized; history is paged (40 messages per page).
 - Vim mode, start at login, packaging and signing are milestone M4.

@@ -75,6 +75,87 @@ static const char* FileStatusToString(FileStatus p_FileStatus)
 }
 
 // Protocols whose read receipts are per message (others are "read up to")
+// Group events (joined, left, renamed, ...) arrive from the protocols as
+// messages with bracketed texts like "[Joined]" or "[Added Pam, Jim]", one per
+// line. Returns them as phrases to follow the sender's name ("joined", "added
+// Pam, Jim"; "; " between several), or "" for a normal message.
+static std::string SystemText(const ChatMessage& p_ChatMessage)
+{
+  if (!p_ChatMessage.fileInfo.empty() || p_ChatMessage.text.empty()) return "";
+
+  static const std::vector<std::pair<std::string, std::string>> s_Exact = {
+    { "Joined", "joined" },
+    { "Left", "left" },
+    { "Created", "created the group" },
+    { "Joined Telegram", "joined Telegram" },
+    { "PinMessage", "pinned a message" },
+    { "ChatSetTheme", "changed the chat theme" },
+    { "ChatSetMessageAutoDeleteTime", "changed the auto-delete timer" },
+    { "Changed group name", "changed the group name" },
+    { "Changed group description", "changed the group description" },
+    { "Changed group avatar", "changed the group picture" },
+    { "Changed disappearing messages timer", "changed the disappearing messages timer" },
+    { "Invited a member", "invited a member" },
+    { "Invitation revoked", "revoked an invitation" },
+    { "Member requested to join", "requested to join" },
+    { "Join request denied", "denied a join request" },
+    { "Enabled announcements only", "allowed only admins to send messages" },
+    { "Disabled announcements only", "allowed all members to send messages" },
+    { "GroupUpdate", "updated the group" },
+  };
+  static const std::vector<std::pair<std::string, std::string>> s_Prefix = {
+    { "Added ", "added " },
+    { "Removed ", "removed " },
+    { "Invited ", "invited " },
+    { "Changed group name to ", "changed the group name to " },
+    { "Changed role for ", "changed the role of " },
+    { "Approved ", "approved " }, // "Approved <name> to join"
+  };
+
+  std::vector<std::string> phrases;
+  for (const std::string& rawLine : StrUtil::Split(p_ChatMessage.text, '\n'))
+  {
+    std::string line = rawLine;
+    StrUtil::Trim(line);
+    if (line.empty()) continue;
+    if ((line.size() < 3) || (line.front() != '[') || (line.back() != ']')) return "";
+
+    const std::string inner = line.substr(1, line.size() - 2);
+    if (inner.find_first_of("[]") != std::string::npos) return "";
+
+    std::string phrase;
+    for (const auto& exact : s_Exact)
+    {
+      if (inner == exact.first)
+      {
+        phrase = exact.second;
+        break;
+      }
+    }
+
+    for (size_t i = 0; phrase.empty() && (i < s_Prefix.size()); ++i)
+    {
+      if (StrUtil::StartsWith(inner, s_Prefix[i].first) && (inner.size() > s_Prefix[i].first.size()))
+      {
+        phrase = s_Prefix[i].second + inner.substr(s_Prefix[i].first.size());
+      }
+    }
+
+    static const std::string s_Accepted = " accepted invite";
+    if (phrase.empty() && (inner.size() > s_Accepted.size()) &&
+        (inner.compare(inner.size() - s_Accepted.size(), s_Accepted.size(), s_Accepted) == 0))
+    {
+      phrase = "accepted the invitation";
+    }
+
+    if (phrase.empty()) return "";
+
+    phrases.push_back(phrase);
+  }
+
+  return StrUtil::Join(phrases, "; ");
+}
+
 static bool HasPerMessageReadReceipts(const std::string& p_ProtocolName)
 {
   return (p_ProtocolName == "WhatsAppMd") || (p_ProtocolName == "Signal");
@@ -86,9 +167,64 @@ ChatModel::ChatModel(const EventSink& p_EventSink, const ProtocolGetter& p_Proto
 {
 }
 
+void ChatModel::SetProfilesDir(const std::string& p_ProfilesDir)
+{
+  m_ProfilesDir = p_ProfilesDir;
+}
+
 void ChatModel::AddAccount(const std::string& p_AccountId)
 {
+  const bool isNew = !m_Accounts.count(p_AccountId);
   m_Accounts[p_AccountId];
+  if (isNew)
+  {
+    LoadAccountState(p_AccountId);
+  }
+}
+
+void ChatModel::LoadAccountState(const std::string& p_AccountId)
+{
+  if (m_ProfilesDir.empty()) return;
+
+  const std::string path = m_ProfilesDir + "/" + p_AccountId + "/braids-chats.json";
+  if (!FileUtil::Exists(path)) return;
+
+  json state = json::parse(FileUtil::ReadFile(path), nullptr, false);
+  if (!state.is_object() || !state.contains("muted") || !state["muted"].is_object()) return;
+
+  AccountState& account = m_Accounts[p_AccountId];
+  for (auto& item : state["muted"].items())
+  {
+    if (item.value().is_boolean())
+    {
+      account.muted[item.key()] = item.value().get<bool>();
+    }
+  }
+}
+
+void ChatModel::SaveAccountState(const std::string& p_AccountId)
+{
+  if (m_ProfilesDir.empty()) return;
+
+  const std::string dir = m_ProfilesDir + "/" + p_AccountId;
+  if (!FileUtil::IsDir(dir)) return;
+
+  json muted = json::object();
+  for (const auto& item : m_Accounts[p_AccountId].muted)
+  {
+    muted[item.first] = item.second;
+  }
+
+  // written to a temp file and moved, so a crash never leaves half a file
+  const std::string path = dir + "/braids-chats.json";
+  FileUtil::WriteFile(path + ".tmp", json{ { "muted", muted } }.dump(2));
+  FileUtil::Move(path + ".tmp", path);
+}
+
+bool ChatModel::IsMuted(const AccountState& p_Account, const ChatInfo& p_ChatInfo) const
+{
+  auto it = p_Account.muted.find(p_ChatInfo.id);
+  return (it != p_Account.muted.end()) ? it->second : p_ChatInfo.isMuted;
 }
 
 void ChatModel::RemoveAccount(const std::string& p_AccountId)
@@ -435,6 +571,15 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
           m_CurrentChat.second = newChatId;
         }
 
+        auto mit = account.muted.find(chatId);
+        if (mit != account.muted.end())
+        {
+          const bool isMuted = mit->second;
+          account.muted.erase(mit);
+          account.muted[newChatId] = isMuted;
+          SaveAccountState(accountId);
+        }
+
         Emit("chat.moved", json{ { "accountId", accountId }, { "chatId", chatId }, { "newChatId", newChatId } });
         MarkChatDirty(accountId, newChatId);
         RequestPreview(accountId, newChatId);
@@ -750,12 +895,15 @@ void ChatModel::MaybeNotify(const std::string& p_AccountId, const std::string& p
 
   if (p_ChatMessage.timeSent == s_SponsoredTime) return;
 
+  // group events (joined, left, ...) are not worth a notification
+  if (!SystemText(p_ChatMessage).empty()) return;
+
   auto cit = account.chatInfos.find(p_ChatId);
   if (cit != account.chatInfos.end())
   {
     if (cit->second.isArchived) return;
 
-    if (cit->second.isMuted && !p_ChatMessage.hasMention) return;
+    if (IsMuted(account, cit->second) && !p_ChatMessage.hasMention) return;
   }
 
   std::shared_ptr<Protocol> protocol = m_ProtocolGetter(p_AccountId);
@@ -1523,6 +1671,30 @@ void ChatModel::ArchiveChat(const std::string& p_AccountId, const std::string& p
   SendProtocolRequest(p_AccountId, archiveChatRequest);
 }
 
+void ChatModel::MuteChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsMuted)
+{
+  AccountState& account = GetAccountOrThrow(p_AccountId);
+  auto cit = account.chatInfos.find(p_ChatId);
+  if (cit == account.chatInfos.end())
+  {
+    throw ApiException(ApiErrorUnknownChat, "unknown chat");
+  }
+
+  // the same as the messenger's own setting: no override needed
+  if (p_IsMuted == cit->second.isMuted)
+  {
+    account.muted.erase(p_ChatId);
+  }
+  else
+  {
+    account.muted[p_ChatId] = p_IsMuted;
+  }
+
+  SaveAccountState(p_AccountId);
+  MarkChatDirty(p_AccountId, p_ChatId);
+  FlushDirtyChats();
+}
+
 void ChatModel::DeleteChat(const std::string& p_AccountId, const std::string& p_ChatId)
 {
   GetAccountOrThrow(p_AccountId);
@@ -1652,7 +1824,7 @@ json ChatModel::ChatToJson(const std::string& p_AccountId, const ChatInfo& p_Cha
     { "isGroup", isGroup },
     { "isUnread", p_ChatInfo.isUnread },
     { "isUnreadMention", p_ChatInfo.isUnreadMention },
-    { "isMuted", p_ChatInfo.isMuted },
+    { "isMuted", IsMuted(m_Accounts[p_AccountId], p_ChatInfo) },
     { "isPinned", p_ChatInfo.isPinned },
     { "isArchived", p_ChatInfo.isArchived },
     { "lastActivity", lastActivity },
@@ -1820,6 +1992,7 @@ json ChatModel::MessageToJson(const std::string& p_AccountId, const std::string&
     { "file", file },
     { "reactions", json{ { "counts", counts }, { "senders", senders }, { "own", ownReaction } } },
     { "mentions", mentions },
+    { "system", SystemText(p_ChatMessage) },
     { "link", p_ChatMessage.link },
   };
 }
@@ -1854,6 +2027,7 @@ json ChatModel::CapabilitiesToJson(std::shared_ptr<Protocol> p_Protocol, const s
     { "editWindowSec", editWindowSec }, // -1 = unlimited, 0 = not supported
     { "pinChat", p_Protocol->HasFeature(FeaturePinChat) },
     { "archiveChat", p_Protocol->HasFeature(FeatureArchiveChat) },
+    { "muteChat", true }, // braids' own setting, for every protocol
     { "pinMessage", p_Protocol->HasFeature(FeaturePinMessage) },
     { "avatars", p_Protocol->HasFeature(FeatureAvatars) },
     { "descriptions", p_Protocol->HasFeature(FeatureDescriptions) },
