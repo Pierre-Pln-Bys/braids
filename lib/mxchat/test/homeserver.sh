@@ -18,6 +18,13 @@ NAME="nchat-mx-synapse"
 IMAGE="matrixdotorg/synapse:latest"
 URL="http://localhost:8008"
 
+# run Synapse as the calling user, so the data dir (config edited below)
+# stays writable; the image otherwise chowns it to its own user 991
+USER_ENV=()
+if [[ "$(id -u)" != "0" ]]; then
+  USER_ENV=(-e "UID=$(id -u)" -e "GID=$(id -g)")
+fi
+
 stop() {
   docker rm -f "${NAME}" > /dev/null 2>&1 || true
 }
@@ -34,7 +41,7 @@ fi
 
 if [[ ! -f "${DATA}/homeserver.yaml" ]]; then
   mkdir -p "${DATA}"
-  docker run --rm -v "${DATA}:/data" -e SYNAPSE_SERVER_NAME=localhost \
+  docker run --rm -v "${DATA}:/data" "${USER_ENV[@]}" -e SYNAPSE_SERVER_NAME=localhost \
          -e SYNAPSE_REPORT_STATS=no "${IMAGE}" generate
   # bind ipv4 only (ipv6 may be unavailable in containers)
   sed -i "s/^    type: http$/    type: http\n    bind_addresses: ['127.0.0.1']/" "${DATA}/homeserver.yaml"
@@ -53,7 +60,7 @@ EOF
 fi
 
 stop
-docker run -d --name "${NAME}" --network host -v "${DATA}:/data" "${IMAGE}" > /dev/null
+docker run -d --name "${NAME}" --network host -v "${DATA}:/data" "${USER_ENV[@]}" "${IMAGE}" > /dev/null
 
 for _ in $(seq 1 60); do
   curl -sf "${URL}/_matrix/client/versions" > /dev/null && break

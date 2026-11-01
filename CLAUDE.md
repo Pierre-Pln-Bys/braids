@@ -1,9 +1,14 @@
 # braids — notes for coding agents
 
 braids: open source desktop messenger (Telegram, WhatsApp, Signal, Matrix),
-Linux + macOS, Tauri GUI on top of a C++ core daemon. Forked from nchat
+Linux only (no macOS builds or CI), Tauri GUI on top of a C++ core daemon. Forked from nchat
 (terminal client). Read `doc/REQUIREMENTS.md` and `doc/ARCHITECTURE.md` first;
-they hold the agreed decisions and the milestone plan (M0 done, next: M1).
+they hold the agreed decisions and the milestone plan (M0 done, M1 core done
+pending real-account checks of Telegram/WhatsApp/Signal, M2 API done, M3 GUI v1
+in `app/` implemented, pending daily use by the maintainer; next: M4). The daemon
+API is in `doc/API.md`; the GUI design brief in `doc/DESIGN_BRIEF.md`, and
+the finished GUI design (tokens, icons, mockups, screenshots) in
+`doc/design/README.md` — follow it when building the Tauri app.
 
 ## Layout
 
@@ -12,10 +17,23 @@ they hold the agreed decisions and the milestone plan (M0 done, next: M1).
 - `lib/{tgchat,wmchat,sgchat,mxchat,duchat}` — protocol libraries. C++ wrapper
   plus Go c-archive for WhatsApp/Signal/Matrix (cgo bridge in `go/cgo*.go`).
 - `lib/ncutil` — utilities and `MessageCache` (SQLite).
-- `src/braidsd` — core daemon (skeleton in M0).
+- `src/braidsd` — core daemon: `core` (accounts, setups, API dispatcher),
+  `chatmodel` (port of nchat's `UiModel::Impl` model), `eventloop` (single
+  thread owning all core state), `authbridge` (login steps as API events),
+  `server` (JSON-RPC transport: Unix socket and stdio).
+  JSON via vendored `ext/nlohmann/json.hpp`.
+- `tests/braidsd` — Python API client (stdio and socket) and tests (Dummy,
+  socket, CLI always; Matrix when the local Synapse runs, required in the
+  Integration CI workflow); `utils/braids-cli` — one-shot commands against a
+  running braidsd; `utils/braids-console` — interactive console for manual
+  login/chat tests (QR via `qrencode`).
+- `app/` — the Tauri GUI (M3): `src-tauri/` Rust shell (socket client,
+  tray), `src/` Svelte 5 + TypeScript UI (`lib/store.svelte.ts` client
+  state from API events, `components/`). Runs in a browser too via the Vite
+  dev bridge (`dev/bridge.ts`). See `app/README.md`.
 - `reference/nchat-ui` — nchat's ncurses UI and its docs/tooling. NOT built.
-  Source material for porting `UiModel::Impl` (chat model) into braidsd in M1;
-  delete when done.
+  Source material for the chat model port (done in M1); delete once the
+  remaining protocols are verified through braidsd.
 - `lib/mxchat/NOTES.md` — detailed notes on how protocols, threading
   (Go callbacks → DeferNotifyRequest → worker thread), MessageCache and history
   paging work. Applies to all protocols, read before touching core logic.
@@ -27,14 +45,35 @@ they hold the agreed decisions and the milestone plan (M0 done, next: M1).
     ./make.sh --no-telegram build      # much faster (tdlib compile is ~1 h)
     ./make.sh --no-telegram tests      # ctest incl. Go unit tests (mxchat)
     ./build/bin/braidsd --list-protocols
+    ./build/bin/braidsd -c /tmp/braidsconf           # socket /tmp/braidsconf/braidsd.sock
+    utils/braids-cli -c /tmp/braidsconf status       # one-shot commands
+    utils/braids-console --connect --confdir /tmp/braidsconf   # interactive
+    ./build/bin/braidsd --stdio -c /tmp/braidsconf   # JSON-RPC on stdin/stdout
+
+App (see `app/README.md`; Linux needs `libwebkit2gtk-4.1-dev` etc.):
+
+    cd app && npm install
+    npm run check && npm run test:ui # type check; UI e2e (braidsd + Chromium)
+    npm run tauri dev                # app window
 
 Matrix integration testing without real accounts:
 `lib/mxchat/test/homeserver.sh start` (Synapse in Docker on localhost:8008,
 users alice/bob) and the scripted client `lib/mxchat/test/peer` (see
 `lib/mxchat/README.md`).
 
+`ctest -R braidsd_matrix` runs the braidsd Matrix test when that homeserver
+is up (skipped otherwise).
+
 Sandboxed/cloud environments: the pre-built libsignal download (mau.dev) may
-be blocked; use `--no-signal` there, CI builds it.
+be blocked; use `--no-signal` there, CI builds it. Docker may need `dockerd`
+started by hand. `./make.sh deps` asks for apt confirmation; install
+`libmagic-dev` etc. non-interactively if it aborts.
+
+Packaging (Linux x86_64 only): `utils/dist/package-linux` builds a relocatable
+tree (rpath `$ORIGIN/../lib`, `-DBRAIDS_RELOCATABLE=ON`, no Dummy) into a
+tarball and a .deb; `utils/dist/install.sh` installs the tarball per user;
+tag `v*` runs `.github/workflows/release.yml`. Website: `site/` (GitHub Pages,
+`.github/workflows/pages.yml`).
 
 ## Conventions
 
@@ -46,7 +85,8 @@ be blocked; use `--no-signal` there, CI builds it.
   existing nchat copyright headers on files derived from nchat (MIT,
   `LICENSE.nchat`).
 - Protocol libraries must stay UI-agnostic; all UI interaction goes through
-  `protocol.h` messages.
+  `protocol.h` messages, user prompts through `AuthHandler` / `AuthUtil`
+  (never `std::cin`/`std::cout`).
 - Never log secrets (tokens, passwords, keys, recovery keys) or message
   plaintext, at any log level. Profile files are 0600 / dirs 0700.
 - Internal names inherited from nchat (`NCHAT_*` CMake/macros, `ncutil`,
@@ -56,9 +96,22 @@ be blocked; use `--no-signal` there, CI builds it.
 
 ## Known TODOs
 
-- Telegram uses nchat's API id (`lib/tgchat/src/tgchat.cpp`, overridable via
-  `TG_APIID`/`TG_APIHASH`); register a braids API id before public release.
-- Protocol setup/login flows are terminal based (stdin, QR printed); M1 makes
-  them event based (see ARCHITECTURE.md "Login flows as events").
-- Some user-facing strings in protocol libraries still mention
-  `nchat --setup`; replace when login flows move to the API.
+Scheduled-later features are in `doc/BACKLOG.md`.
+
+
+- Telegram API credentials: braids' own are given at build time
+  (`TG_API_ID`/`TG_API_HASH`: CMake variables, environment, or a git-ignored
+  `.env` in the repository root, see `.env.example`; the release
+  workflow takes them from repository secrets). Builds without them fall back
+  to nchat's credentials (development only).
+- Telegram, WhatsApp and Signal login flows through braidsd are implemented
+  but not yet verified with real accounts (needs the maintainer; use
+  `utils/braids-console`).
+- App: vim mode is M4. Muting and "mark unread" are braids' own settings
+  (`chats.mute`, `chats.markUnread`, kept in `<profile>/braids-chats.json`),
+  not synced to the messenger. Unread counts are computed by braidsd
+  (`ChatModel::UnreadCount`, history cache at connect + loaded messages). The
+  conversation renders a window of the loaded messages (`Conversation.svelte`,
+  `WINDOW`/`REVEAL`). Group events reach braidsd as bracketed texts (`[Joined]`);
+  `SystemText()` in `chatmodel.cpp` turns them into the message's `system`
+  phrase.

@@ -7,11 +7,13 @@
 
 #include "wmchat.h"
 
+#include <cstring>
 #include <iostream>
 
 #include <sys/stat.h>
 
 #include "appconfig.h"
+#include "authutil.h"
 #include "fileutil.h"
 #include "libcgowm.h"
 #include "log.h"
@@ -66,7 +68,8 @@ bool WmChat::HasFeature(ProtocolFeature p_ProtocolFeature) const
     FeatureAutoGetContactsOnLogin |
     FeaturePinChat |
     FeatureArchiveChat |
-    FeaturePresenceRequiresOnline;
+    FeaturePresenceRequiresOnline |
+    FeatureAvatars | FeatureDescriptions | FeatureJoinChat;
   return (p_ProtocolFeature & customFeatures);
 }
 
@@ -88,15 +91,16 @@ bool WmChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_Profi
 {
   m_IsSetup = true;
 
-  std::cout << "\n";
-  std::cout << "WARNING:\n";
-  std::cout << "This functionality is in no way affiliated with, authorized, maintained,\n";
-  std::cout << "sponsored or endorsed by WhatsApp or any of its affiliates or subsidiaries.\n";
-  std::cout << "WhatsApp may disable or suspend accounts violating their Terms of Service.\n";
-  std::cout << "Use at your own risk. You may abort this setup wizard by pressing CTRL-C.\n";
-  std::cout << "\n";
+  AuthUtil::ShowInfo(m_AuthHandler, "This is an unofficial WhatsApp client, not affiliated with or endorsed by "
+                     "WhatsApp. WhatsApp may disable or suspend accounts using it. Use at your own risk.");
 
-  std::string phoneNumber = StrUtil::GetPhoneNumber();
+  std::string phoneNumber;
+  if (!AuthUtil::InputPhoneNumber(m_AuthHandler, phoneNumber))
+  {
+    m_IsSetup = false;
+    return false;
+  }
+
   m_ProfileId = m_ProfileId + "_" + phoneNumber;
   std::string profileDir = p_ProfilesDir + "/" + m_ProfileId;
 
@@ -164,9 +168,8 @@ bool WmChat::LoadProfile(const std::string& p_ProfilesDir, const std::string& p_
   if (m_WhatsmeowDate < m_ProfileDirVersion)
   {
     std::string versionWarning =
-      "downgrading nchat without clean setup is not supported.\n"
-      "consider performing a clean setup if issues are encountered:\n"
-      "nchat --setup";
+      "downgrading braids without clean setup is not supported.\n"
+      "consider removing and adding the account again if issues are encountered.";
     LOG_WARNING("whatsmeow downgrade from %d:\n%s", m_ProfileDirVersion, versionWarning.c_str());
     std::cerr << "warning: " << versionWarning << "\n";
   }
@@ -243,6 +246,13 @@ bool WmChat::Login()
     }
   }
   return (rv == 0);
+}
+
+bool WmChat::Unlink()
+{
+  if (!m_Running) return false;
+
+  return (CWmUnlink(m_ConnId) == 0);
 }
 
 bool WmChat::Logout()
@@ -400,6 +410,10 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
             ProtocolUtil::FileInfoFromHex(sendMessageRequest->chatMessage.fileInfo);
           filePath = fileInfo.filePath;
           fileType = fileInfo.fileType;
+          if (sendMessageRequest->isVoice)
+          {
+            fileType = "voice:" + fileType; // braids: voice note, see WmSendMessage
+          }
         }
 
         std::string mentionsJson = ProtocolUtil::MentionsToJson(sendMessageRequest->chatMessage.mentions);
@@ -675,6 +689,29 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case GetAvatarRequestType:
+      {
+        std::shared_ptr<GetAvatarRequest> getAvatarRequest =
+          std::static_pointer_cast<GetAvatarRequest>(p_RequestMessage);
+        CWmGetAvatar(m_ConnId, const_cast<char*>(getAvatarRequest->id.c_str()));
+      }
+      break;
+
+    case GetDescriptionRequestType:
+      {
+        std::shared_ptr<GetDescriptionRequest> getDescriptionRequest =
+          std::static_pointer_cast<GetDescriptionRequest>(p_RequestMessage);
+        CWmGetDescription(m_ConnId, const_cast<char*>(getDescriptionRequest->id.c_str()));
+      }
+      break;
+
+    case JoinChatRequestType:
+      {
+        std::shared_ptr<JoinChatRequest> joinChatRequest = std::static_pointer_cast<JoinChatRequest>(p_RequestMessage);
+        CWmJoinChat(m_ConnId, const_cast<char*>(joinChatRequest->link.c_str()));
+      }
+      break;
+
     case GetGroupMembersRequestType:
       {
         LOG_DEBUG("get group members");
@@ -719,6 +756,8 @@ std::string WmChat::GetProxyUrl() const
 
 void WmChat::SetProtocolUiControl(bool p_IsTakeControl)
 {
+  if (m_AuthHandler) return; // auth steps go through the auth handler, not the terminal
+
   if (m_IsSetup)
   {
     LOG_TRACE("set protocol ui control %d ignored during setup", p_IsTakeControl);
@@ -868,6 +907,63 @@ void WmNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMute
   }
 
   free(p_ChatId);
+}
+
+void WmNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<NewAvatarNotify> notify = std::make_shared<NewAvatarNotify>(instance->GetProfileId());
+    notify->id = std::string(p_Id);
+    notify->filePath = std::string(p_FilePath);
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = notify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_Id);
+  free(p_FilePath);
+}
+
+void WmNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<NewDescriptionNotify> notify = std::make_shared<NewDescriptionNotify>(instance->GetProfileId());
+    notify->id = std::string(p_Id);
+    notify->description = std::string(p_Description);
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = notify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_Id);
+  free(p_Description);
+}
+
+void WmJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<JoinChatNotify> notify = std::make_shared<JoinChatNotify>(instance->GetProfileId());
+    notify->link = std::string(p_Link);
+    notify->success = (p_Success != 0);
+    notify->chatId = std::string(p_ChatId);
+    notify->error = std::string(p_Error);
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = notify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_Link);
+  free(p_ChatId);
+  free(p_Error);
 }
 
 void WmNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson)
@@ -1271,6 +1367,47 @@ void WmSetProtocolUiControl(int p_ConnId, int p_IsTakeControl)
   {
     instance->SetProtocolUiControl(p_IsTakeControl);
   }
+}
+
+void WmAuthShow(int p_ConnId, int p_Step, char* p_Message, char* p_Data)
+{
+  AuthPrompt prompt;
+  prompt.step = static_cast<AuthStep>(p_Step);
+  prompt.message = std::string(p_Message);
+  prompt.data = std::string(p_Data);
+  free(p_Message);
+  free(p_Data);
+
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  AuthUtil::Show((instance != nullptr) ? instance->GetAuthHandler() : nullptr, prompt);
+}
+
+int WmAuthIsCancelled(int p_ConnId)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  return ((instance != nullptr) && AuthUtil::IsCancelled(instance->GetAuthHandler())) ? 1 : 0;
+}
+
+char* WmAuthInput(int p_ConnId, char* p_Field, char* p_Message, int p_IsSecret)
+{
+  AuthPrompt prompt;
+  prompt.step = AuthStepInput;
+  prompt.field = std::string(p_Field);
+  prompt.message = std::string(p_Message);
+  prompt.isSecret = (p_IsSecret == 1);
+  free(p_Field);
+  free(p_Message);
+
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  std::string value;
+  if (!AuthUtil::Input((instance != nullptr) ? instance->GetAuthHandler() : nullptr, prompt, value))
+  {
+    return nullptr;
+  }
+
+  char* rv = strdup(value.c_str());
+  AuthUtil::SecureClear(value);
+  return rv;
 }
 
 void WmSetStatus(int p_ConnId, int p_Flags)

@@ -8,7 +8,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -131,6 +133,24 @@ func msgTypeForMime(mimeType string) event.MessageType {
 	}
 }
 
+// markVoice turns a file message into a voice message: m.audio with the
+// duration and the MSC3245 voice marker clients show as a voice note.
+func markVoice(content *event.MessageEventContent, filePath string) {
+	durationMs := 0
+	if data, err := os.ReadFile(filePath); err == nil {
+		durationMs = int(OggOpusDurationMs(data))
+	}
+
+	content.MsgType = event.MsgAudio
+	if content.Info == nil {
+		content.Info = &event.FileInfo{}
+	}
+	content.Info.MimeType = "audio/ogg"
+	content.Info.Duration = durationMs
+	content.MSC1767Audio = &event.MSC1767Audio{Duration: durationMs, Waveform: []int{}}
+	content.MSC3245Voice = &event.MSC3245Voice{}
+}
+
 func (conn *MxConn) fileContent(ctx context.Context, roomID id.RoomID, filePath string, text string) (*event.MessageEventContent, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -197,7 +217,8 @@ func MxSendMessage(connId int, chatId string, text string, quotedId string, file
 	ctx, cancel := conn.requestContext()
 	defer cancel()
 	roomID := id.RoomID(chatId)
-	_ = fileType
+	// "voice:<mime>" sends an audio file as a voice message (MSC3245)
+	isVoice := strings.HasPrefix(fileType, "voice:")
 
 	var content *event.MessageEventContent
 	if filePath != "" {
@@ -206,6 +227,21 @@ func MxSendMessage(connId int, chatId string, text string, quotedId string, file
 		if err != nil {
 			LOG_WARNING(fmt.Sprintf("send file failed: %v", err))
 			return -1
+		}
+
+		if isVoice {
+			markVoice(content, filePath)
+		}
+
+		// a caption: body (and formatted body) hold the text, filename the
+		// file's name (media captions, Matrix spec v1.10)
+		if text != "" {
+			mdText, userIDs := mentionsToMarkdown(text, mentionsJson)
+			rendered := format.RenderMarkdown(mdText, true, false)
+			content.Body = rendered.Body
+			content.Format = rendered.Format
+			content.FormattedBody = rendered.FormattedBody
+			content.Mentions = &event.Mentions{UserIDs: userIDs}
 		}
 	} else {
 		mdText, userIDs := mentionsToMarkdown(text, mentionsJson)
@@ -676,4 +712,30 @@ func MxCreateChat(connId int, userId string) int {
 	}()
 
 	return 0
+}
+
+// braids: OggOpusDurationMs returns the length of an Ogg/Opus file (voice
+// notes): the last page's granule position (48 kHz samples) minus the
+// pre-skip from the OpusHead header; 0 if it is not one.
+func OggOpusDurationMs(data []byte) int64 {
+	if len(data) < 64 || string(data[:4]) != "OggS" {
+		return 0
+	}
+
+	preSkip := int64(0)
+	if i := bytes.Index(data, []byte("OpusHead")); i >= 0 && i+12 <= len(data) {
+		preSkip = int64(binary.LittleEndian.Uint16(data[i+10 : i+12]))
+	}
+
+	last := bytes.LastIndex(data, []byte("OggS"))
+	if last < 0 || last+14 > len(data) {
+		return 0
+	}
+
+	granule := int64(binary.LittleEndian.Uint64(data[last+6 : last+14]))
+	if granule <= preSkip {
+		return 0
+	}
+
+	return (granule - preSkip) * 1000 / 48000
 }

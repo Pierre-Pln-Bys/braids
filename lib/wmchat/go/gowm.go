@@ -9,7 +9,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
@@ -37,10 +39,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/store"
 
-	"github.com/mdp/qrterminal"
-
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/skip2/go-qrcode"
 	"go.mau.fi/libsignal/logger"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
@@ -723,8 +722,9 @@ func ExtensionByType(mimeType string, defaultExt string) string {
 	ext := defaultExt
 	exts, extErr := mime.ExtensionsByType(mimeType)
 	if extErr == nil && len(exts) > 0 {
-		// prefer common extensions over less common (.jpe, etc) returned by mime library
-		preferredExts := []string{".jpg", ".jpeg"}
+		// prefer common extensions over less common ones returned by the mime
+		// library in alphabetical order (.jpe, .f4v for video/mp4, .oga, etc)
+		preferredExts := []string{".jpg", ".jpeg", ".png", ".mp4", ".mov", ".ogg", ".mp3", ".m4a", ".aac", ".webp", ".pdf"}
 		sort.Slice(exts, func(i, j int) bool {
 			return SliceIndex(preferredExts, exts[i], math.MaxInt32) < SliceIndex(preferredExts, exts[j], math.MaxInt32)
 		})
@@ -889,6 +889,14 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 	case *events.Archive:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
 		handler.HandleArchive(evt)
+
+	case *events.Picture:
+		// a contact or group changed its picture: fetch it again
+		LOG_TRACE(fmt.Sprintf("%#v", evt))
+		if evt.Remove {
+			forgetAvatar(handler.connId, evt.JID.String())
+		}
+		WmGetAvatar(handler.connId, evt.JID.String())
 
 	case *events.Pin:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
@@ -1119,6 +1127,14 @@ func (handler *WmEventHandler) HandleGroupInfo(groupInfo *events.GroupInfo) {
 		return
 	}
 	chatId := GetChatId(client, &groupInfo.JID, nil)
+
+	if groupInfo.Topic != nil {
+		topic := groupInfo.Topic.Topic
+		if groupInfo.Topic.TopicDeleted {
+			topic = ""
+		}
+		CWmNewDescriptionNotify(connId, chatId, topic)
+	}
 
 	if groupInfo.Ephemeral != nil {
 		SetExpiration(connId, chatId, groupInfo.Ephemeral.DisappearingTimer)
@@ -2671,29 +2687,33 @@ func ReadPastedJson(r io.Reader) ([]byte, error) {
 // be produced by nchat itself, so the user must run navigator.credentials.get()
 // in a signed-in web.whatsapp.com browser tab and paste the result back here.
 // See doc/WMPASSKEY.md for details.
-func GetPasskeyResponse(publicKey *types.WebAuthnPublicKey) (*types.WebAuthnResponse, error) {
+func GetPasskeyResponse(connId int, publicKey *types.WebAuthnPublicKey) (*types.WebAuthnResponse, error) {
 	pubKeyJson, err := json.Marshal(publicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal passkey request options: %w", err)
 	}
 
-	fmt.Printf("\n")
-	fmt.Printf("This WhatsApp account requires passkey authentication to link a new device.\n")
-	fmt.Printf("nchat cannot access your passkey directly, so please complete these steps:\n")
-	fmt.Printf("\n")
-	fmt.Printf("1. In a browser, open https://web.whatsapp.com signed in to (or able to\n")
-	fmt.Printf("   authenticate with the passkey of) this WhatsApp account.\n")
-	fmt.Printf("2. Open the browser developer console (F12 / Cmd-Opt-J) and run:\n")
-	fmt.Printf("\n")
-	fmt.Printf("   const opts = PublicKeyCredential.parseRequestOptionsFromJSON(%s);\n", string(pubKeyJson))
-	fmt.Printf("   const cred = await navigator.credentials.get({ publicKey: opts });\n")
-	fmt.Printf("   console.log(JSON.stringify(cred.toJSON()));\n")
-	fmt.Printf("\n")
-	fmt.Printf("3. Approve the passkey prompt, then copy the single JSON line it prints.\n")
-	fmt.Printf("4. Paste that JSON below and press Enter (or press CTRL-C to abort):\n")
-	fmt.Printf("\n")
+	msg := "This WhatsApp account requires passkey authentication to link a new device.\n" +
+		"braids cannot access your passkey directly, so please complete these steps:\n" +
+		"\n" +
+		"1. In a browser, open https://web.whatsapp.com signed in to (or able to\n" +
+		"   authenticate with the passkey of) this WhatsApp account.\n" +
+		"2. Open the browser developer console (F12 / Cmd-Opt-J) and run:\n" +
+		"\n" +
+		"   const opts = PublicKeyCredential.parseRequestOptionsFromJSON(" + string(pubKeyJson) + ");\n" +
+		"   const cred = await navigator.credentials.get({ publicKey: opts });\n" +
+		"   console.log(JSON.stringify(cred.toJSON()));\n" +
+		"\n" +
+		"3. Approve the passkey prompt, then copy the single JSON line it prints.\n" +
+		"4. Paste that JSON below."
+	CWmAuthShow(connId, AuthStepInfo, msg, "")
 
-	respJson, err := ReadPastedJson(os.Stdin)
+	input, ok := CWmAuthInput(connId, AuthFieldPasskeyResponse, "Passkey response JSON", false)
+	if !ok {
+		return nil, fmt.Errorf("passkey authentication cancelled")
+	}
+
+	respJson, err := ReadPastedJson(strings.NewReader(input + "\n"))
 	if err != nil {
 		return nil, err
 	}
@@ -2712,15 +2732,12 @@ func GetPasskeyResponse(publicKey *types.WebAuthnPublicKey) (*types.WebAuthnResp
 // When SkipHandoffUX is true the QR channel confirms automatically and this is
 // not reached.
 func ConfirmPasskeyHandoff(connId int, cli *whatsmeow.Client, confirmation *events.PairPasskeyConfirmation) {
-	fmt.Printf("\n")
-	fmt.Printf("Verify that your phone shows the following pairing code:\n")
-	fmt.Printf("\n")
-	fmt.Printf("    %s\n", confirmation.Code)
-	fmt.Printf("\n")
-	fmt.Printf("Press Enter to confirm the codes match (or press CTRL-C to abort):\n")
-
-	reader := bufio.NewReader(os.Stdin)
-	_, _ = reader.ReadString('\n')
+	CWmAuthShow(connId, AuthStepInfo, "Verify that your phone shows the following pairing code:", confirmation.Code)
+	if _, ok := CWmAuthInput(connId, AuthFieldConfirm, "Confirm that the codes match", false); !ok {
+		LOG_WARNING("passkey confirmation cancelled")
+		SetState(connId, Disconnected)
+		return
+	}
 
 	if err := cli.SendPasskeyConfirmation(context.TODO()); err != nil {
 		LOG_WARNING(fmt.Sprintf("send passkey confirmation error %#v", err))
@@ -2761,26 +2778,15 @@ func WmLogin(connId int) int {
 	} else {
 		timeoutMs = 60000 // 60 sec timeout during setup / qr code scan
 		go func() {
-			hasGUI := HasGUI()
 			usePairingCode := GetConfigOrEnvFlag("USE_PAIRING_CODE")
 
 			LOG_TRACE(fmt.Sprintf("acquire console"))
 			CWmSetProtocolUiControl(connId, 1)
 
-			if usePairingCode {
-				fmt.Printf("\n")
-				fmt.Printf("Open the WhatsApp notification \"Enter code to link new device\" on your phone,\n")
-				fmt.Printf("click \"Confirm\" and enter below pairing code on your phone, or press CTRL-C\n")
-				fmt.Printf("to abort.\n")
-				fmt.Printf("\n")
-			} else {
-				fmt.Printf("\n")
-				fmt.Printf("Open WhatsApp on your phone, click the menu bar and select \"Linked devices\".\n")
-				fmt.Printf("Click on \"Link a device\", unlock the phone and aim its camera at the\n")
-				fmt.Printf("Qr code displayed on the computer screen.\n")
-				fmt.Printf("\n")
-				fmt.Printf("Scan the Qr code to authenticate, or press CTRL-C to abort.\n")
-			}
+			const pairingCodeMsg = "Open the WhatsApp notification \"Enter code to link new device\" on your phone,\n" +
+				"tap \"Confirm\" and enter this pairing code on your phone."
+			const qrCodeMsg = "Open WhatsApp on your phone, open the menu and select \"Linked devices\".\n" +
+				"Tap \"Link a device\", unlock the phone and scan this QR code."
 
 			passkeyRequired := false
 			for evt := range ch {
@@ -2800,22 +2806,15 @@ func WmLogin(connId int) int {
 							LOG_WARNING(fmt.Sprintf("pair phone error %#v", pairErr))
 							SetState(connId, Disconnected)
 						} else {
-							fmt.Printf("Code: %s\n", pairCode)
-							fmt.Printf("\n")
+							CWmAuthShow(connId, AuthStepInfo, pairingCodeMsg, pairCode)
 						}
 					} else {
-						if hasGUI {
-							qrPath := path + "/tmp/qr.png"
-							qrcode.WriteFile(evt.Code, qrcode.Medium, 512, qrPath)
-							ShowImage(qrPath)
-						} else {
-							qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-						}
+						CWmAuthShow(connId, AuthStepQr, qrCodeMsg, evt.Code)
 					}
 				} else if evt.Event == whatsmeow.QRChannelEventPasskeyRequest {
 					passkeyRequired = true
 					SetPasskeyWait(connId, true)
-					resp, respErr := GetPasskeyResponse(evt.PasskeyRequest.PublicKey)
+					resp, respErr := GetPasskeyResponse(connId, evt.PasskeyRequest.PublicKey)
 					SetPasskeyWait(connId, false)
 					if respErr != nil {
 						LOG_WARNING(fmt.Sprintf("get passkey response error %#v", respErr))
@@ -2824,8 +2823,7 @@ func WmLogin(connId int) int {
 						LOG_WARNING(fmt.Sprintf("send passkey response error %#v", sendErr))
 						SetState(connId, Disconnected)
 					} else {
-						fmt.Printf("\n")
-						fmt.Printf("Passkey response sent, completing pairing...\n")
+						CWmAuthShow(connId, AuthStepInfo, "Passkey response sent, completing pairing...", "")
 					}
 				} else if evt.Event == whatsmeow.QRChannelEventPasskeyResponse {
 					// Reached only when SkipHandoffUX is false; otherwise the QR
@@ -2852,6 +2850,7 @@ func WmLogin(connId int) int {
 	err = cli.Connect()
 	if err != nil {
 		LOG_WARNING(fmt.Sprintf("failed to connect %#v", err))
+		CWmAuthShow(connId, AuthStepError, "Could not connect to WhatsApp, please check the network connection.", "")
 		CWmClearStatus(connId, FlagConnecting)
 		return -1
 	}
@@ -2862,7 +2861,12 @@ func WmLogin(connId int) int {
 	LOG_DEBUG("wait start")
 	waitedMs := 0
 	for GetState(connId) == Connecting {
-		if GetPasskeyWait(connId) {
+		if CWmAuthIsCancelled(connId) {
+			LOG_INFO("login cancelled")
+			cli.Disconnect()
+			SetState(connId, Disconnected)
+			break
+		} else if GetPasskeyWait(connId) {
 			// Suspend the pairing timeout while awaiting an interactive passkey
 			// response, as that involves a manual browser step by the user.
 			waitedMs = 0
@@ -2881,28 +2885,36 @@ func WmLogin(connId int) int {
 	if GetState(connId) != Connected {
 		LOG_WARNING(fmt.Sprintf("state not connected %#v", GetState(connId)))
 
-		LOG_TRACE(fmt.Sprintf("acquire console"))
-		CWmSetProtocolUiControl(connId, 1)
-
-		fmt.Printf("\n")
 		if GetState(connId) == Outdated {
-			fmt.Printf("ERROR:\n")
-			fmt.Printf("WhatsApp client is outdated, please update nchat to a newer version. See:\n")
-			fmt.Printf("https://github.com/d99kris/nchat/blob/master/doc/WMOUTDATED.md\n")
+			CWmAuthShow(connId, AuthStepError, "WhatsApp client is outdated, please update braids to a newer version.", "")
 		} else {
-			fmt.Printf("ERROR:\n")
-			fmt.Printf("Please see the log for details.\n")
+			CWmAuthShow(connId, AuthStepError, "WhatsApp connection failed, please see the log for details.", "")
 		}
-		fmt.Printf("\n")
-
-		LOG_TRACE(fmt.Sprintf("release console"))
-		CWmSetProtocolUiControl(connId, 0)
 
 		CWmClearStatus(connId, FlagConnecting)
 		return -1
 	}
 
 	LOG_DEBUG("login ok")
+	return 0
+}
+
+// WmUnlink removes this linked device at WhatsApp (as "Log out" on the
+// phone does) and deletes the local session.
+func WmUnlink(connId int) int {
+	client := GetClient(connId)
+	if client == nil {
+		return -1
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := client.Logout(ctx); err != nil {
+		LOG_WARNING(fmt.Sprintf("unlink failed: %v", err))
+		return -1
+	}
+
+	LOG_DEBUG("unlink ok")
 	return 0
 }
 
@@ -2952,7 +2964,12 @@ func WmGetMessages(connId int, chatId string, limit int, fromMsgId string, owner
 
 func WmSendMessage(connId int, chatId string, text string, quotedId string, quotedText string, quotedSender string, filePath string, fileType string, editMsgId string, editMsgSent int, mentionsJson string) int {
 
-	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + text + ", " + quotedId + ", " + filePath + ", " + editMsgId)
+	// braids: no message text in the log
+	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + quotedId + ", " + filePath + ", " + editMsgId)
+
+	// braids: "voice:<mime>" sends an audio file as a voice note (PTT)
+	isVoice := strings.HasPrefix(fileType, "voice:")
+	fileType = strings.TrimPrefix(fileType, "voice:")
 
 	// sanity check arg
 	if connId == -1 {
@@ -3119,7 +3136,7 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 			message.VideoMessage = &videoMessage
 			isSend = true
 
-		} else if (sendType >= AttachmentSendAsType) && (mimeType == "audio") {
+		} else if ((sendType >= AttachmentSendAsType) || isVoice) && (mimeType == "audio") {
 
 			LOG_TRACE("send audio " + fileType)
 			data, err := os.ReadFile(filePath)
@@ -3138,6 +3155,9 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 			if fileType == "audio/ogg" {
 				audioMime = "audio/ogg; codecs=opus"
 			}
+			if isVoice {
+				audioMime = "audio/ogg; codecs=opus"
+			}
 
 			audioMessage := waE2E.AudioMessage{
 				URL:           proto.String(uploaded.URL),
@@ -3148,6 +3168,12 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 				FileSHA256:    uploaded.FileSHA256,
 				FileLength:    proto.Uint64(uint64(len(data))),
 				ContextInfo:   &contextInfo,
+			}
+			if isVoice {
+				audioMessage.PTT = proto.Bool(true)
+				if ms := OggOpusDurationMs(data); ms > 0 {
+					audioMessage.Seconds = proto.Uint32(uint32((ms + 500) / 1000))
+				}
 			}
 
 			message.AudioMessage = &audioMessage
@@ -3794,4 +3820,30 @@ func WmSendReaction(connId int, chatId string, senderId string, msgId string, em
 	}
 
 	return 0
+}
+
+// braids: OggOpusDurationMs returns the length of an Ogg/Opus file (voice
+// notes): the last page's granule position (48 kHz samples) minus the
+// pre-skip from the OpusHead header; 0 if it is not one.
+func OggOpusDurationMs(data []byte) int64 {
+	if len(data) < 64 || string(data[:4]) != "OggS" {
+		return 0
+	}
+
+	preSkip := int64(0)
+	if i := bytes.Index(data, []byte("OpusHead")); i >= 0 && i+12 <= len(data) {
+		preSkip = int64(binary.LittleEndian.Uint16(data[i+10 : i+12]))
+	}
+
+	last := bytes.LastIndex(data, []byte("OggS"))
+	if last < 0 || last+14 > len(data) {
+		return 0
+	}
+
+	granule := int64(binary.LittleEndian.Uint64(data[last+6 : last+14]))
+	if granule <= preSkip {
+		return 0
+	}
+
+	return (granule - preSkip) * 1000 / 48000
 }

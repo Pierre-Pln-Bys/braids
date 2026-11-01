@@ -14,12 +14,16 @@
 //
 // Commands:
 //   create <invitee> [encrypted]      create room, prints room id
+//   publicroom <alias> [name...]      create a public room #alias:server, prints room id
 //   join <room>                       join room
 //   send <room> <text...>             send text (markdown)
 //   reply <room> <event> <text...>    send reply
 //   edit <room> <event> <text...>     edit own message
 //   react <room> <event> <key>        send reaction
 //   redact <room> <event>             redact event
+//   topic <room> <text...>            set the room topic (a state event)
+//   avatar <path>                     set own avatar from an image file
+//   roomavatar <room> <path>          set the room avatar from an image file
 //   typing <room> on|off              typing notification
 //   read <room> <event>               send read receipt
 //   sendfile <room> <path>            send attachment (encrypted in e2ee rooms)
@@ -129,6 +133,12 @@ func main() {
 		}
 		if content.Mentions != nil && len(content.Mentions.UserIDs) > 0 {
 			m["mentions"] = content.Mentions.UserIDs
+		}
+		if content.MSC3245Voice != nil {
+			m["voice"] = true
+		}
+		if content.Info != nil && content.Info.Duration > 0 {
+			m["duration"] = content.Info.Duration
 		}
 		if content.URL != "" || content.File != nil {
 			m["file"] = true
@@ -259,6 +269,13 @@ func (p *peer) command(ctx context.Context, line string) (map[string]any, error)
 	cli := p.client
 
 	switch f[0] {
+	case "publicroom":
+		resp, err := cli.CreateRoom(ctx, &mautrix.ReqCreateRoom{Preset: "public_chat", RoomAliasName: arg(1), Name: rest(2)})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": resp.RoomID.String()}, nil
+
 	case "create":
 		req := &mautrix.ReqCreateRoom{Preset: "private_chat", Invite: []id.UserID{id.UserID(arg(1))}}
 		if arg(2) == "encrypted" {
@@ -309,6 +326,30 @@ func (p *peer) command(ctx context.Context, line string) (map[string]any, error)
 			return nil, err
 		}
 		return map[string]any{"event": resp.EventID}, nil
+
+	case "avatar", "roomavatar":
+		file := arg(1)
+		if f[0] == "roomavatar" {
+			file = arg(2)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		up, err := cli.UploadMedia(ctx, mautrix.ReqUploadMedia{ContentBytes: data, ContentType: http.DetectContentType(data)})
+		if err != nil {
+			return nil, err
+		}
+		if f[0] == "avatar" {
+			return map[string]any{"uri": up.ContentURI.String()}, cli.SetAvatarURL(ctx, up.ContentURI)
+		}
+		_, err = cli.SendStateEvent(ctx, id.RoomID(arg(1)), event.StateRoomAvatar, "",
+			&event.RoomAvatarEventContent{URL: up.ContentURI.CUString()})
+		return map[string]any{"uri": up.ContentURI.String()}, err
+
+	case "topic":
+		_, err := cli.SendStateEvent(ctx, id.RoomID(arg(1)), event.StateTopic, "", &event.TopicEventContent{Topic: rest(2)})
+		return nil, err
 
 	case "typing":
 		_, err := cli.UserTyping(ctx, id.RoomID(arg(1)), arg(2) == "on", 20*time.Second)

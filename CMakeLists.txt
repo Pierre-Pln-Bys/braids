@@ -15,8 +15,16 @@ endif()
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+# Relocatable install (release packages, utils/dist/package-linux): the
+# libraries are found next to the binaries wherever the tree is unpacked.
+option(BRAIDS_RELOCATABLE "Relocatable install tree (rpath \$ORIGIN/../lib)" OFF)
+if(BRAIDS_RELOCATABLE)
+  set(CMAKE_INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}:\$ORIGIN")
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+else()
+  set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+endif()
 
 # Build type (Debug, Release, RelWithDebInfo)
 set(DEFAULT_BUILD_TYPE "Release")
@@ -410,13 +418,27 @@ endif()
 
 # Application: core daemon
 add_executable(braidsd
+  src/braidsd/api.h
+  src/braidsd/authbridge.cpp
+  src/braidsd/authbridge.h
+  src/braidsd/chatmodel.cpp
+  src/braidsd/chatmodel.h
+  src/braidsd/core.cpp
+  src/braidsd/core.h
+  src/braidsd/eventloop.cpp
+  src/braidsd/eventloop.h
   src/braidsd/main.cpp
+  src/braidsd/protocolfactory.cpp
+  src/braidsd/protocolfactory.h
+  src/braidsd/server.cpp
+  src/braidsd/server.h
 )
 install(TARGETS braidsd DESTINATION bin)
 
 # Headers
 target_include_directories(braidsd PRIVATE "lib/common/src")
 target_include_directories(braidsd PRIVATE "lib/ncutil/src")
+target_include_directories(braidsd SYSTEM PRIVATE "src/braidsd/ext")
 
 # Compiler flags
 set_target_properties(braidsd PROPERTIES COMPILE_FLAGS
@@ -514,7 +536,9 @@ set(TPL_PREAMBLE "${CMAKE_CURRENT_SOURCE_DIR}/utils/licenses/preamble-agpl.txt")
 
 set(TPL_FRAGMENTS
   "${TPL_PREAMBLE}"
-  "${CMAKE_CURRENT_SOURCE_DIR}/lib/ncutil/THIRD_PARTY_LICENSES")
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/braidsd/THIRD_PARTY_LICENSES"
+  "${CMAKE_CURRENT_SOURCE_DIR}/lib/ncutil/THIRD_PARTY_LICENSES"
+  "${CMAKE_CURRENT_SOURCE_DIR}/app/THIRD_PARTY_LICENSES")
 if(HAS_TELEGRAM)
   list(APPEND TPL_FRAGMENTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/tgchat/THIRD_PARTY_LICENSES")
 endif()

@@ -519,6 +519,25 @@ func MxLogin(connId int) int {
 	return 0
 }
 
+// MxUnlink logs this device out at the homeserver: the access token and the
+// device (with its keys) are removed from the account.
+func MxUnlink(connId int) int {
+	conn := GetConn(connId)
+	if (conn == nil) || (conn.client == nil) {
+		return -1
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := conn.client.Logout(ctx); err != nil {
+		LOG_WARNING(fmt.Sprintf("unlink failed: %v", err))
+		return -1
+	}
+
+	LOG_DEBUG("unlink ok")
+	return 0
+}
+
 func MxLogout(connId int) int {
 	conn := GetConn(connId)
 	if conn == nil {
@@ -740,7 +759,7 @@ func (conn *MxConn) reportTokenInvalid() {
 	CMxClearStatus(conn.connId, FlagOnline|FlagConnecting|FlagSyncing)
 	CMxSetStatus(conn.connId, FlagOffline)
 	CMxReportError(conn.connId, "Matrix session is no longer valid (access token expired or device "+
-		"logged out). Remove and set up the profile again: nchat --remove, nchat --setup")
+		"logged out). Remove the account and add it again.")
 }
 
 // MxSyncer wraps DefaultSyncer: crypto and state store handlers run first

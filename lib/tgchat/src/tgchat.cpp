@@ -8,7 +8,11 @@
 #include "tgchat.h"
 
 #include <cstdint>
+#include <chrono>
+#include <cstring>
+#include <fstream>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -28,6 +32,7 @@
 #include <td/telegram/Client.h>
 
 #include "appconfig.h"
+#include "authutil.h"
 #include "apputil.h"
 #include "setuputil.h"
 #include "cacheutil.h"
@@ -51,6 +56,40 @@
 // #define SIMULATED_SPONSORED_MESSAGES
 
 static const int s_TdlibDate = 20261009;
+
+// braids: length of an Ogg/Opus voice message in seconds: the last page's
+// granule position (48 kHz samples) minus the OpusHead pre-skip; 0 if unknown
+static int32_t OggOpusDurationSec(const std::string& p_Path)
+{
+  std::ifstream file(p_Path, std::ios::binary);
+  const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  if ((data.size() < 64) || (data.compare(0, 4, "OggS") != 0)) return 0;
+
+  auto le = [&data](size_t p_Pos, int p_Bytes)
+  {
+    uint64_t value = 0;
+    for (int i = p_Bytes - 1; i >= 0; --i)
+    {
+      value = (value << 8) | static_cast<uint8_t>(data[p_Pos + i]);
+    }
+    return value;
+  };
+
+  uint64_t preSkip = 0;
+  const size_t head = data.find("OpusHead");
+  if ((head != std::string::npos) && (head + 12 <= data.size()))
+  {
+    preSkip = le(head + 10, 2);
+  }
+
+  const size_t last = data.rfind("OggS");
+  if ((last == std::string::npos) || (last + 14 > data.size())) return 0;
+
+  const uint64_t granule = le(last + 6, 8);
+  if (granule <= preSkip) return 0;
+
+  return static_cast<int32_t>((granule - preSkip + 24000) / 48000);
+}
 
 namespace detail
 {
@@ -104,12 +143,14 @@ public:
   bool HasFeature(ProtocolFeature p_ProtocolFeature) const;
   std::string GetSelfId() const;
 
+  void SetAuthHandler(std::shared_ptr<AuthHandler> p_AuthHandler) { m_AuthHandler = p_AuthHandler; }
   bool SetupProfile(const std::string& p_ProfilesDir, std::string& p_ProfileId);
   bool LoadProfile(const std::string& p_ProfilesDir, const std::string& p_ProfileId);
   bool CloseProfile();
 
   bool Login();
   bool Logout();
+  bool Unlink();
 
   void Process();
 
@@ -118,6 +159,7 @@ public:
 
 private:
   std::string m_ProfileId;
+  std::shared_ptr<AuthHandler> m_AuthHandler;
   std::string m_ProfileDir;
   std::function<void(std::shared_ptr<ServiceMessage>)> m_MessageHandler;
 
@@ -195,6 +237,14 @@ private:
   void TdMessageContentConvert(td::td_api::MessageContent& p_TdMessageContent, int64_t p_SenderId,
                                std::string& p_Text, std::string& p_FileInfo);
   void TdMessageConvert(td::td_api::message& p_TdMessage, ChatMessage& p_ChatMessage);
+  void GetAvatar(const std::string& p_AvatarId);
+  void DownloadAvatar(const std::string& p_AvatarId, td::td_api::object_ptr<td::td_api::file>& p_File);
+  void NotifyAvatar(const std::string& p_AvatarId, const std::string& p_FilePath);
+  void GetDescription(const std::string& p_DescId);
+  void JoinChat(const std::string& p_Link);
+  void NotifyJoinChat(const std::string& p_Link, bool p_Success, int64_t p_ChatId, const std::string& p_Error);
+  void GetUserDescription(const std::string& p_DescId, int64_t p_UserId);
+  void NotifyDescription(const std::string& p_DescId, const std::string& p_Description);
   void DownloadFile(std::string p_ChatId, std::string p_MsgId, std::string p_FileId, std::string p_DownloadId,
                     DownloadFileAction p_DownloadFileAction);
   void RequestSponsoredMessagesIfNeeded();
@@ -209,6 +259,7 @@ private:
   td::td_api::object_ptr<td::td_api::inputMessageText> GetMessageText(const std::string& p_Text);
   std::string ConvertMarkdownV2ToV1(const std::string& p_Str);
   void SetProtocolUiControl(bool p_IsTakeControl);
+  void ShowReauthRequired(const std::string& p_PhoneNumber);
   std::string GetProfilePhoneNumber();
   void GetMsgReactions(td::td_api::object_ptr<td::td_api::messageInteractionInfo>& p_InteractionInfo,
                        Reactions& p_Reactions);
@@ -295,11 +346,13 @@ std::string TgChat::GetSelfId() const
 
 bool TgChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_ProfileId)
 {
+  m_Impl->SetAuthHandler(m_AuthHandler);
   return m_Impl->SetupProfile(p_ProfilesDir, p_ProfileId);
 }
 
 bool TgChat::LoadProfile(const std::string& p_ProfilesDir, const std::string& p_ProfileId)
 {
+  m_Impl->SetAuthHandler(m_AuthHandler);
   return m_Impl->LoadProfile(p_ProfilesDir, p_ProfileId);
 }
 
@@ -310,12 +363,18 @@ bool TgChat::CloseProfile()
 
 bool TgChat::Login()
 {
+  m_Impl->SetAuthHandler(m_AuthHandler);
   return m_Impl->Login();
 }
 
 bool TgChat::Logout()
 {
   return m_Impl->Logout();
+}
+
+bool TgChat::Unlink()
+{
+  return m_Impl->Unlink();
 }
 
 void TgChat::Process()
@@ -355,7 +414,10 @@ bool TgChat::Impl::HasFeature(ProtocolFeature p_ProtocolFeature) const
     FeatureAutoGetContactsOnLogin |
     FeaturePinChat |
     FeatureArchiveChat |
-    FeaturePinMessage;
+    FeaturePinMessage |
+    FeatureAvatars |
+    FeatureDescriptions |
+    FeatureJoinChat;
   return (p_ProtocolFeature & customFeatures);
 }
 
@@ -366,7 +428,7 @@ std::string TgChat::Impl::GetSelfId() const
 
 bool TgChat::Impl::SetupProfile(const std::string& p_ProfilesDir, std::string& p_ProfileId)
 {
-  m_SetupPhoneNumber = StrUtil::GetPhoneNumber();
+  if (!AuthUtil::InputPhoneNumber(m_AuthHandler, m_SetupPhoneNumber)) return false;
 
   m_ProfileId = m_ProfileId + "_" + m_SetupPhoneNumber;
   m_ProfileDir = p_ProfilesDir + "/" + m_ProfileId;
@@ -390,7 +452,7 @@ bool TgChat::Impl::SetupProfile(const std::string& p_ProfilesDir, std::string& p
   Cleanup();
   CleanupConfig();
 
-  bool rv = m_IsSetup;
+  bool rv = m_IsSetup && m_Authorized;
   if (rv)
   {
     m_IsSetup = false;
@@ -416,9 +478,8 @@ bool TgChat::Impl::LoadProfile(const std::string& p_ProfilesDir, const std::stri
   if (s_TdlibDate < m_ProfileDirVersion)
   {
     std::string versionWarning =
-      "downgrading nchat without clean setup is not supported.\n"
-      "consider performing a clean setup if issues are encountered:\n"
-      "nchat --setup";
+      "downgrading braids without clean setup is not supported.\n"
+      "consider removing and adding the account again if issues are encountered.";
     LOG_WARNING("tdlib downgrade from %d:\n%s", m_ProfileDirVersion, versionWarning.c_str());
     std::cerr << "warning: " << versionWarning << "\n";
   }
@@ -460,6 +521,30 @@ bool TgChat::Impl::Login()
   }
 
   return true;
+}
+
+// Terminates this session at Telegram (it leaves Settings -> Devices); waits
+// up to 15 s for the answer.
+bool TgChat::Impl::Unlink()
+{
+  if (!m_Running) return false;
+
+  auto done = std::make_shared<std::promise<bool>>();
+  std::future<bool> result = done->get_future();
+  SendQuery(td::td_api::make_object<td::td_api::logOut>(), [done](Object object)
+  {
+    done->set_value(object && (object->get_id() == td::td_api::ok::ID));
+  });
+
+  if (result.wait_for(std::chrono::seconds(15)) != std::future_status::ready)
+  {
+    LOG_WARNING("unlink timeout");
+    return false;
+  }
+
+  const bool ok = result.get();
+  LOG_DEBUG("unlink %s", ok ? "ok" : "failed");
+  return ok;
 }
 
 bool TgChat::Impl::Logout()
@@ -951,7 +1036,18 @@ void TgChat::Impl::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessa
           bool hasQuote = !sendMessageRequest->chatMessage.quotedId.empty();
           bool isSendAsSpecial = (attachmentSendType >= AttachmentSendAsSticker) && !hasText && !hasQuote;
 
-          if (isSendAsSpecial && (mimeSubType == "webp"))
+          if (sendMessageRequest->isVoice)
+          {
+            // braids: a recorded voice message (Ogg/Opus)
+            auto message_content = td::td_api::make_object<td::td_api::inputMessageVoiceNote>();
+            message_content->voice_note_ = td::td_api::make_object<td::td_api::inputVoiceNote>();
+            message_content->voice_note_->voice_note_ =
+              td::td_api::make_object<td::td_api::inputFileLocal>(fileInfo.filePath);
+            message_content->voice_note_->duration_ = OggOpusDurationSec(fileInfo.filePath);
+            message_content->caption_ = std::move(formatted_text);
+            send_message->input_message_content_ = std::move(message_content);
+          }
+          else if (isSendAsSpecial && (mimeSubType == "webp"))
           {
             auto message_content = td::td_api::make_object<td::td_api::inputMessageSticker>();
             message_content->sticker_ = td::td_api::make_object<td::td_api::inputSticker>();
@@ -1704,6 +1800,28 @@ void TgChat::Impl::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessa
       }
       break;
 
+    case GetAvatarRequestType:
+      {
+        std::shared_ptr<GetAvatarRequest> getAvatarRequest = std::static_pointer_cast<GetAvatarRequest>(p_RequestMessage);
+        GetAvatar(getAvatarRequest->id);
+      }
+      break;
+
+    case GetDescriptionRequestType:
+      {
+        std::shared_ptr<GetDescriptionRequest> getDescriptionRequest =
+          std::static_pointer_cast<GetDescriptionRequest>(p_RequestMessage);
+        GetDescription(getDescriptionRequest->id);
+      }
+      break;
+
+    case JoinChatRequestType:
+      {
+        std::shared_ptr<JoinChatRequest> joinChatRequest = std::static_pointer_cast<JoinChatRequest>(p_RequestMessage);
+        JoinChat(joinChatRequest->link);
+      }
+      break;
+
     case GetGroupMembersRequestType:
       {
         std::shared_ptr<GetGroupMembersRequest> getGroupMembersRequest =
@@ -1846,6 +1964,14 @@ void TgChat::Impl::ProcessService()
 {
   while (m_Running)
   {
+    if (m_IsSetup && AuthUtil::IsCancelled(m_AuthHandler))
+    {
+      LOG_INFO("setup cancelled");
+      m_IsSetup = false;
+      m_Running = false;
+      break;
+    }
+
     auto response = m_ClientManager->receive(0.1);
     if (response.object)
     {
@@ -1897,6 +2023,46 @@ void TgChat::Impl::ProcessUpdate(td::td_api::object_ptr<td::td_api::Object> upda
       std::make_shared<NewContactsNotify>(m_ProfileId);
     newContactsNotify->contactInfos = std::vector<ContactInfo>({ contactInfo });
     CallMessageHandler(newContactsNotify);
+  },
+  [this](td::td_api::updateUserFullInfo& update_user_full_info)
+  {
+    LOG_TRACE("user full info update");
+
+    // the private chat with a user has the user's id
+    if (update_user_full_info.user_full_info_)
+    {
+      auto& bio = update_user_full_info.user_full_info_->bio_;
+      NotifyDescription(StrUtil::NumToHex(update_user_full_info.user_id_), bio ? bio->text_ : "");
+    }
+  },
+  [this](td::td_api::updateBasicGroupFullInfo& update_basic_group_full_info)
+  {
+    LOG_TRACE("basic group full info update");
+
+    // chat id of a basic group: -id
+    if (update_basic_group_full_info.basic_group_full_info_)
+    {
+      NotifyDescription(StrUtil::NumToHex(-update_basic_group_full_info.basic_group_id_),
+                        update_basic_group_full_info.basic_group_full_info_->description_);
+    }
+  },
+  [this](td::td_api::updateSupergroupFullInfo& update_supergroup_full_info)
+  {
+    LOG_TRACE("supergroup full info update");
+
+    // chat id of a supergroup / channel: -1000000000000 - id
+    if (update_supergroup_full_info.supergroup_full_info_)
+    {
+      NotifyDescription(StrUtil::NumToHex(-1000000000000LL - update_supergroup_full_info.supergroup_id_),
+                        update_supergroup_full_info.supergroup_full_info_->description_);
+    }
+  },
+  [this](td::td_api::updateChatPhoto& update_chat_photo)
+  {
+    LOG_TRACE("chat photo update");
+
+    // fetch the new photo (or report its removal)
+    GetAvatar(StrUtil::NumToHex(update_chat_photo.chat_id_));
   },
   [this](td::td_api::updateChatTitle& update_chat_title)
   {
@@ -2510,8 +2676,7 @@ void TgChat::Impl::OnAuthStateUpdate()
       if (!m_IsReinit)
       {
         m_IsReinit = true;
-        SetProtocolUiControl(true);
-        std::cout << "Telegram reauthentication for " << GetProfilePhoneNumber() << " required\n\n";
+        ShowReauthRequired(GetProfilePhoneNumber());
       }
     }
 
@@ -2568,8 +2733,7 @@ void TgChat::Impl::OnAuthStateUpdate()
         if (!m_IsReinit)
         {
           m_IsReinit = true;
-          SetProtocolUiControl(true);
-          std::cout << "Telegram reauthentication for " << phone_number << " required\n\n";
+          ShowReauthRequired(phone_number);
         }
       }
 
@@ -2606,12 +2770,20 @@ void TgChat::Impl::OnAuthStateUpdate()
     set_parameters->use_message_database_ = true;
     set_parameters->use_secret_chats_ = true;
 
-    std::string apiId = getenv("TG_APIID") ? getenv("TG_APIID")
-      : StrUtil::StrFromHex("3130343132303237");
+    // braids' credentials come from the build (TG_API_ID / TG_API_HASH, see
+    // CMakeLists.txt); nchat's are the fallback for development builds; the
+    // environment variables TG_APIID / TG_APIHASH override both
+#if defined(TG_API_ID) && defined(TG_API_HASH)
+    const std::string buildApiId = TG_API_ID;
+    const std::string buildApiHash = TG_API_HASH;
+#else
+    const std::string buildApiId = StrUtil::StrFromHex("3130343132303237");
+    const std::string buildApiHash = StrUtil::StrFromHex("3536373261353832633265666532643939363232326636343237386563616163");
+#endif
+    std::string apiId = getenv("TG_APIID") ? getenv("TG_APIID") : buildApiId;
     set_parameters->api_id_ = StrUtil::ToInteger(apiId);
 
-    std::string apiHash = getenv("TG_APIHASH") ? getenv("TG_APIHASH")
-      : StrUtil::StrFromHex("3536373261353832633265666532643939363232326636343237386563616163");
+    std::string apiHash = getenv("TG_APIHASH") ? getenv("TG_APIHASH") : buildApiHash;
     set_parameters->api_hash_ = apiHash;
 
     set_parameters->system_language_code_ = "en";
@@ -2637,24 +2809,11 @@ void TgChat::Impl::OnAuthStateUpdate()
     if (!m_IsSetup && !m_IsReinit)
     {
       m_IsReinit = true;
-      SetProtocolUiControl(true);
-      std::cout << "Telegram reauthentication for " << GetProfilePhoneNumber() << " required\n\n";
+      ShowReauthRequired(GetProfilePhoneNumber());
     }
 
-    std::cout << "\nOpen Telegram on your phone, go to Settings -> Devices\n";
-    std::cout << "and click Link Desktop Device and scan the QR code.\n\n";
-    if (SetupUtil::HasGui())
-    {
-      std::string qrPath = FileUtil::GetTempDir() + "/tg_qr.png";
-      if (QrUtil::WritePngFile(state.link_, qrPath))
-      {
-        SetupUtil::ShowImage(qrPath);
-      }
-    }
-    else
-    {
-      std::cout << QrUtil::ToTerminalString(state.link_);
-    }
+    AuthUtil::ShowQr(m_AuthHandler, "Open Telegram on your phone, go to Settings > Devices,\n"
+                     "tap \"Link Desktop Device\" and scan this QR code.", state.link_);
 
     LOG_DEBUG("Link URL: %s", state.link_.c_str());
   },
@@ -2724,10 +2883,8 @@ void TgChat::Impl::AuthInputLoop()
     {
       case AuthInputCode:
         {
-          std::cout << "Enter authentication code: ";
           std::string code;
-          std::getline(std::cin, code);
-          if (std::cin.fail() || std::cin.eof())
+          if (!AuthUtil::Input(m_AuthHandler, s_AuthFieldCode, "Authentication code", code))
           {
             m_Running = false;
             return;
@@ -2740,9 +2897,9 @@ void TgChat::Impl::AuthInputLoop()
 
       case AuthInputPassword:
         {
-          std::cout << "Enter authentication password: ";
-          std::string password = StrUtil::GetPass();
-          if (std::cin.fail() || std::cin.eof())
+          std::string password;
+          if (!AuthUtil::Input(m_AuthHandler, s_AuthFieldPassword, "Two-step verification password", password,
+                               true /*p_IsSecret*/))
           {
             m_Running = false;
             return;
@@ -2750,6 +2907,7 @@ void TgChat::Impl::AuthInputLoop()
           if (m_AuthQueryId != authQueryId) break;
           SendQuery(td::td_api::make_object<td::td_api::checkAuthenticationPassword>(password),
                     CreateAuthQueryHandler());
+          AuthUtil::SecureClear(password);
         }
         break;
 
@@ -2757,17 +2915,14 @@ void TgChat::Impl::AuthInputLoop()
         {
           std::string first_name;
           std::string last_name;
-          std::cout << "Enter your first name: ";
-          std::getline(std::cin, first_name);
-          if (std::cin.fail() || std::cin.eof())
+          if (!AuthUtil::Input(m_AuthHandler, s_AuthFieldFirstName, "First name", first_name))
           {
             m_Running = false;
             return;
           }
 
-          std::cout << "Enter your last name: ";
-          std::getline(std::cin, last_name);
-          if (std::cin.fail() || std::cin.eof())
+          if (!AuthUtil::Input(m_AuthHandler, s_AuthFieldLastName, "Last name", last_name, false /*p_IsSecret*/,
+                               true /*p_IsOptional*/))
           {
             m_Running = false;
             return;
@@ -2781,10 +2936,17 @@ void TgChat::Impl::AuthInputLoop()
 
       case AuthInputSessionClosed:
         {
+          if (m_AuthHandler)
+          {
+            AuthUtil::ShowError(m_AuthHandler, "Session terminated by other device. Remove the account and add it "
+                                "again to log in.");
+            return;
+          }
+
           SetProtocolUiControl(true);
           std::cout << "\n";
           std::cout << "WARNING: Session terminated by other device.\n";
-          std::cout << "Please restart nchat to reauthenticate. Press ENTER to continue.\n";
+          std::cout << "Please restart to reauthenticate. Press ENTER to continue.\n";
           std::string str;
           std::getline(std::cin, str);
           SetProtocolUiControl(false);
@@ -2825,7 +2987,7 @@ void TgChat::Impl::CheckAuthError(Object object)
     LOG_WARNING("auth error \"%s\"", to_string(error).c_str());
     if (m_IsSetup || m_IsReinit)
     {
-      std::cout << "Authentication error: " << error->message_ << "\n";
+      AuthUtil::ShowError(m_AuthHandler, "Authentication error: " + error->message_);
       if (m_IsReinit)
       {
         SetProtocolUiControl(false);
@@ -3352,6 +3514,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     auto& localFile = animationFile->local_;
     auto& localPath = localFile->path_;
     FileInfo fileInfo;
+    fileInfo.fileType = animation->mime_type_;
     std::string id = animationFile->remote_->id_;
     fileInfo.fileId = id;
     if (!localPath.empty())
@@ -3376,6 +3539,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     std::string fileName = messageAudio.audio_->file_name_;
     p_Text = GetText(std::move(messageAudio.caption_));
     FileInfo fileInfo;
+    fileInfo.fileType = messageAudio.audio_->mime_type_;
     fileInfo.fileId = id;
     if (!path.empty())
     {
@@ -3424,6 +3588,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     std::string fileName = messageDocument.document_->file_name_;
     p_Text = GetText(std::move(messageDocument.caption_));
     FileInfo fileInfo;
+    fileInfo.fileType = messageDocument.document_->mime_type_;
     fileInfo.fileId = id;
     if (!path.empty())
     {
@@ -3451,6 +3616,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
       auto& localFile = photoFile->local_;
       auto& localPath = localFile->path_;
       FileInfo fileInfo;
+      fileInfo.fileType = "image/jpeg";
       std::string id = photoFile->remote_->id_;
       fileInfo.fileId = id;
       if (!localPath.empty())
@@ -3481,6 +3647,14 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     auto& localFile = stickerFile->local_;
     auto& localPath = localFile->path_;
     FileInfo fileInfo;
+    if (sticker->format_ && (sticker->format_->get_id() == td::td_api::stickerFormatWebp::ID))
+    {
+      fileInfo.fileType = "image/webp";
+    }
+    else if (sticker->format_ && (sticker->format_->get_id() == td::td_api::stickerFormatWebm::ID))
+    {
+      fileInfo.fileType = "video/webm";
+    }
     std::string id = stickerFile->remote_->id_;
     fileInfo.fileId = id;
     if (!localPath.empty())
@@ -3506,6 +3680,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     auto& localFile = videoFile->local_;
     auto& localPath = localFile->path_;
     FileInfo fileInfo;
+    fileInfo.fileType = video->mime_type_;
     std::string id = videoFile->remote_->id_;
     fileInfo.fileId = id;
     if (!localPath.empty())
@@ -3530,6 +3705,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     auto& localFile = videoFile->local_;
     auto& localPath = localFile->path_;
     FileInfo fileInfo;
+    fileInfo.fileType = "video/mp4";
     std::string id = videoFile->remote_->id_;
     fileInfo.fileId = id;
     if (!localPath.empty())
@@ -3553,6 +3729,7 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     std::string path = messageVoiceNote.voice_note_->voice_->local_->path_;
     p_Text = GetText(std::move(messageVoiceNote.caption_));
     FileInfo fileInfo;
+    fileInfo.fileType = messageVoiceNote.voice_note_->mime_type_;
     fileInfo.fileId = id;
     if (!path.empty())
     {
@@ -3703,6 +3880,294 @@ void TgChat::Impl::TdMessageConvert(td::td_api::message& p_TdMessage, ChatMessag
   {
     GetMsgReactions(p_TdMessage.interaction_info_, p_ChatMessage.reactions);
   }
+}
+
+// Avatar of a chat (for a private chat, which has the user's id, the user's
+// photo) or of a user without a chat: the small photo, downloaded by tdlib
+// into its file cache.
+void TgChat::Impl::GetAvatar(const std::string& p_AvatarId)
+{
+  const int64_t idNum = StrUtil::NumFromHex<int64_t>(p_AvatarId);
+  auto get_chat = td::td_api::make_object<td::td_api::getChat>();
+  get_chat->chat_id_ = idNum;
+  SendQuery(std::move(get_chat), [this, p_AvatarId, idNum](Object object)
+  {
+    if (object->get_id() == td::td_api::chat::ID)
+    {
+      auto tchat = td::move_tl_object_as<td::td_api::chat>(object);
+      if (tchat->photo_ && tchat->photo_->small_)
+      {
+        DownloadAvatar(p_AvatarId, tchat->photo_->small_);
+      }
+      else
+      {
+        NotifyAvatar(p_AvatarId, "");
+      }
+
+      return;
+    }
+
+    if (idNum <= 0)
+    {
+      NotifyAvatar(p_AvatarId, "");
+      return;
+    }
+
+    // a user without a private chat (e.g. a group member)
+    auto get_user = td::td_api::make_object<td::td_api::getUser>();
+    get_user->user_id_ = idNum;
+    SendQuery(std::move(get_user), [this, p_AvatarId](Object userObject)
+    {
+      if (userObject->get_id() != td::td_api::user::ID)
+      {
+        NotifyAvatar(p_AvatarId, "");
+        return;
+      }
+
+      auto user = td::move_tl_object_as<td::td_api::user>(userObject);
+      if (user->profile_photo_ && user->profile_photo_->small_)
+      {
+        DownloadAvatar(p_AvatarId, user->profile_photo_->small_);
+      }
+      else
+      {
+        NotifyAvatar(p_AvatarId, "");
+      }
+    });
+  });
+}
+
+void TgChat::Impl::DownloadAvatar(const std::string& p_AvatarId, td::td_api::object_ptr<td::td_api::file>& p_File)
+{
+  if (p_File->local_ && p_File->local_->is_downloading_completed_ && !p_File->local_->path_.empty())
+  {
+    NotifyAvatar(p_AvatarId, p_File->local_->path_);
+    return;
+  }
+
+  auto download_file = td::td_api::make_object<td::td_api::downloadFile>();
+  download_file->file_id_ = p_File->id_;
+  download_file->priority_ = 1; // below message files
+  download_file->synchronous_ = true;
+  SendQuery(std::move(download_file), [this, p_AvatarId](Object object)
+  {
+    std::string path;
+    if (object->get_id() == td::td_api::file::ID)
+    {
+      auto file = td::move_tl_object_as<td::td_api::file>(object);
+      if (file->local_ && file->local_->is_downloading_completed_)
+      {
+        path = file->local_->path_;
+      }
+    }
+
+    NotifyAvatar(p_AvatarId, path);
+  });
+}
+
+void TgChat::Impl::NotifyAvatar(const std::string& p_AvatarId, const std::string& p_FilePath)
+{
+  std::shared_ptr<NewAvatarNotify> newAvatarNotify = std::make_shared<NewAvatarNotify>(m_ProfileId);
+  newAvatarNotify->id = p_AvatarId;
+  newAvatarNotify->filePath = p_FilePath;
+  CallMessageHandler(newAvatarNotify);
+}
+
+// Joins by invite link (https://t.me/+…, t.me/joinchat/…, tg://join?invite=…)
+// or public name (@name, https://t.me/name).
+void TgChat::Impl::JoinChat(const std::string& p_Link)
+{
+  std::string link = p_Link;
+  StrUtil::Trim(link);
+  auto errorText = [](Object& object)
+  {
+    if (object->get_id() == td::td_api::error::ID)
+    {
+      return "Could not join: " + td::move_tl_object_as<td::td_api::error>(object)->message_;
+    }
+
+    return std::string("Could not join.");
+  };
+
+  if ((link.find("t.me/+") != std::string::npos) || (link.find("/joinchat/") != std::string::npos) ||
+      (link.find("tg://join") != std::string::npos))
+  {
+    auto join = td::td_api::make_object<td::td_api::joinChatByInviteLink>();
+    join->invite_link_ = link;
+    SendQuery(std::move(join), [this, p_Link, errorText](Object object)
+    {
+      if (object->get_id() == td::td_api::chat::ID)
+      {
+        NotifyJoinChat(p_Link, true, td::move_tl_object_as<td::td_api::chat>(object)->id_, "");
+      }
+      else
+      {
+        NotifyJoinChat(p_Link, false, 0, errorText(object));
+      }
+    });
+    return;
+  }
+
+  std::string username = link;
+  for (const std::string& prefix : { std::string("https://"), std::string("http://"), std::string("t.me/"),
+                                     std::string("telegram.me/"), std::string("@") })
+  {
+    if (username.rfind(prefix, 0) == 0) username = username.substr(prefix.size());
+  }
+
+  username = username.substr(0, username.find_first_of("/?"));
+  if (username.empty() || (username.find_first_of(" .:") != std::string::npos))
+  {
+    NotifyJoinChat(p_Link, false, 0, "Not a Telegram invite link or public name (@name, https://t.me/…).");
+    return;
+  }
+
+  auto search = td::td_api::make_object<td::td_api::searchPublicChat>();
+  search->username_ = username;
+  SendQuery(std::move(search), [this, p_Link, errorText](Object object)
+  {
+    if (object->get_id() != td::td_api::chat::ID)
+    {
+      NotifyJoinChat(p_Link, false, 0, errorText(object));
+      return;
+    }
+
+    const int64_t chatId = td::move_tl_object_as<td::td_api::chat>(object)->id_;
+    auto join = td::td_api::make_object<td::td_api::joinChat>();
+    join->chat_id_ = chatId;
+    SendQuery(std::move(join), [this, p_Link, chatId, errorText](Object joinObject)
+    {
+      if (joinObject->get_id() == td::td_api::ok::ID)
+      {
+        NotifyJoinChat(p_Link, true, chatId, "");
+      }
+      else
+      {
+        NotifyJoinChat(p_Link, false, 0, errorText(joinObject));
+      }
+    });
+  });
+}
+
+void TgChat::Impl::NotifyJoinChat(const std::string& p_Link, bool p_Success, int64_t p_ChatId,
+                                  const std::string& p_Error)
+{
+  std::shared_ptr<JoinChatNotify> joinChatNotify = std::make_shared<JoinChatNotify>(m_ProfileId);
+  joinChatNotify->link = p_Link;
+  joinChatNotify->success = p_Success;
+  joinChatNotify->chatId = p_Success ? StrUtil::NumToHex(p_ChatId) : "";
+  joinChatNotify->error = p_Error;
+  CallMessageHandler(joinChatNotify);
+}
+
+// Description of a group / channel, or the bio of a user (for a private or
+// secret chat, the other user's).
+void TgChat::Impl::GetDescription(const std::string& p_DescId)
+{
+  const int64_t idNum = StrUtil::NumFromHex<int64_t>(p_DescId);
+  auto get_chat = td::td_api::make_object<td::td_api::getChat>();
+  get_chat->chat_id_ = idNum;
+  SendQuery(std::move(get_chat), [this, p_DescId, idNum](Object object)
+  {
+    if (object->get_id() != td::td_api::chat::ID)
+    {
+      // a user without a private chat (e.g. a group member)
+      if (idNum > 0)
+      {
+        GetUserDescription(p_DescId, idNum);
+      }
+      else
+      {
+        NotifyDescription(p_DescId, "");
+      }
+
+      return;
+    }
+
+    auto tchat = td::move_tl_object_as<td::td_api::chat>(object);
+    if (!tchat->type_)
+    {
+      NotifyDescription(p_DescId, "");
+      return;
+    }
+
+    switch (tchat->type_->get_id())
+    {
+      case td::td_api::chatTypePrivate::ID:
+        GetUserDescription(p_DescId, static_cast<td::td_api::chatTypePrivate&>(*tchat->type_).user_id_);
+        break;
+
+      case td::td_api::chatTypeSecret::ID:
+        GetUserDescription(p_DescId, static_cast<td::td_api::chatTypeSecret&>(*tchat->type_).user_id_);
+        break;
+
+      case td::td_api::chatTypeBasicGroup::ID:
+        {
+          auto get_info = td::td_api::make_object<td::td_api::getBasicGroupFullInfo>();
+          get_info->basic_group_id_ = static_cast<td::td_api::chatTypeBasicGroup&>(*tchat->type_).basic_group_id_;
+          SendQuery(std::move(get_info), [this, p_DescId](Object infoObject)
+        {
+          std::string description;
+          if (infoObject->get_id() == td::td_api::basicGroupFullInfo::ID)
+          {
+            description = td::move_tl_object_as<td::td_api::basicGroupFullInfo>(infoObject)->description_;
+          }
+
+          NotifyDescription(p_DescId, description);
+        });
+        }
+        break;
+
+      case td::td_api::chatTypeSupergroup::ID:
+        {
+          auto get_info = td::td_api::make_object<td::td_api::getSupergroupFullInfo>();
+          get_info->supergroup_id_ = static_cast<td::td_api::chatTypeSupergroup&>(*tchat->type_).supergroup_id_;
+          SendQuery(std::move(get_info), [this, p_DescId](Object infoObject)
+        {
+          std::string description;
+          if (infoObject->get_id() == td::td_api::supergroupFullInfo::ID)
+          {
+            description = td::move_tl_object_as<td::td_api::supergroupFullInfo>(infoObject)->description_;
+          }
+
+          NotifyDescription(p_DescId, description);
+        });
+        }
+        break;
+
+      default:
+        NotifyDescription(p_DescId, "");
+        break;
+    }
+  });
+}
+
+void TgChat::Impl::GetUserDescription(const std::string& p_DescId, int64_t p_UserId)
+{
+  auto get_info = td::td_api::make_object<td::td_api::getUserFullInfo>();
+  get_info->user_id_ = p_UserId;
+  SendQuery(std::move(get_info), [this, p_DescId](Object object)
+  {
+    std::string bio;
+    if (object->get_id() == td::td_api::userFullInfo::ID)
+    {
+      auto info = td::move_tl_object_as<td::td_api::userFullInfo>(object);
+      if (info->bio_)
+      {
+        bio = info->bio_->text_;
+      }
+    }
+
+    NotifyDescription(p_DescId, bio);
+  });
+}
+
+void TgChat::Impl::NotifyDescription(const std::string& p_DescId, const std::string& p_Description)
+{
+  std::shared_ptr<NewDescriptionNotify> newDescriptionNotify = std::make_shared<NewDescriptionNotify>(m_ProfileId);
+  newDescriptionNotify->id = p_DescId;
+  newDescriptionNotify->description = p_Description;
+  CallMessageHandler(newDescriptionNotify);
 }
 
 void TgChat::Impl::DownloadFile(std::string p_ChatId, std::string p_MsgId, std::string p_FileId,
@@ -4080,8 +4545,21 @@ std::string TgChat::Impl::ConvertMarkdownV2ToV1(const std::string& p_Str)
   return rv;
 }
 
+void TgChat::Impl::ShowReauthRequired(const std::string& p_PhoneNumber)
+{
+  SetProtocolUiControl(true);
+  if (!m_AuthHandler)
+  {
+    std::cout << "\n";
+  }
+
+  AuthUtil::ShowInfo(m_AuthHandler, "Telegram reauthentication for " + p_PhoneNumber + " required.");
+}
+
 void TgChat::Impl::SetProtocolUiControl(bool p_IsTakeControl)
 {
+  if (m_AuthHandler) return; // auth steps go through the auth handler, not the terminal
+
   LOG_TRACE("set protocol ui control %d", p_IsTakeControl);
   std::shared_ptr<ProtocolUiControlNotify> protocolUiControlNotify =
     std::make_shared<ProtocolUiControlNotify>(m_ProfileId);

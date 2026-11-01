@@ -26,9 +26,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/mdp/qrterminal"
 	"github.com/rs/zerolog"
-	"github.com/skip2/go-qrcode"
 	"go.mau.fi/util/dbutil"
 	"google.golang.org/protobuf/proto"
 
@@ -988,8 +986,9 @@ func ExtensionByType(mimeType string, defaultExt string) string {
 	ext := defaultExt
 	exts, extErr := mime.ExtensionsByType(mimeType)
 	if extErr == nil && len(exts) > 0 {
-		// prefer common extensions over less common (.jpe, etc) returned by mime library
-		preferredExts := []string{".jpg", ".jpeg"}
+		// prefer common extensions over less common ones returned by the mime
+		// library in alphabetical order (.jpe, .f4v for video/mp4, .oga, etc)
+		preferredExts := []string{".jpg", ".jpeg", ".png", ".mp4", ".mov", ".ogg", ".mp3", ".m4a", ".aac", ".webp", ".pdf"}
 		sort.Slice(exts, func(i, j int) bool {
 			return SliceIndex(preferredExts, exts[i], 1000000) < SliceIndex(preferredExts, exts[j], 1000000)
 		})
@@ -1397,6 +1396,16 @@ func (handler *SgEventHandler) handleGroupChange(chatId string, senderId string,
 			}
 			if actions.GetModifyDescription() != nil {
 				texts = append(texts, "[Changed group description]")
+				newDescription := ""
+				if gsp != nil {
+					if decrypted, err := gsp.DecryptBlobWithPadding(actions.GetModifyDescription().GetDescription()); err == nil {
+						var blob signalpb.GroupAttributeBlob
+						if err := proto.Unmarshal(decrypted, &blob); err == nil {
+							newDescription = blob.GetDescriptionText()
+						}
+					}
+				}
+				CSgNewDescriptionNotify(connId, chatId, newDescription)
 			}
 			if actions.GetModifyAvatar() != nil {
 				texts = append(texts, "[Changed group avatar]")
@@ -1982,7 +1991,6 @@ func SgLogin(connId int) int {
 		return -1
 	}
 
-	path := GetPath(connId)
 	client := GetClient(connId)
 	device := GetDevice(connId)
 	container := GetContainer(connId)
@@ -2000,32 +2008,32 @@ func SgLogin(connId int) int {
 		LOG_TRACE(fmt.Sprintf("acquire console"))
 		CSgSetProtocolUiControl(connId, 1)
 
-		fmt.Printf("\n")
-		fmt.Printf("Open Signal on your phone, go to Settings > Linked devices.\n")
-		fmt.Printf("Click on \"Link a device\", unlock the phone and aim its camera at the\n")
-		fmt.Printf("QR code displayed on the computer screen.\n")
-		fmt.Printf("\n")
-		fmt.Printf("Scan the QR code to authenticate, or press CTRL-C to abort.\n")
+		const qrCodeMsg = "Open Signal on your phone, go to Settings > Linked devices.\n" +
+			"Tap \"Link a device\", unlock the phone and scan this QR code."
 
 		deviceName := GetDeviceName()
 		allowBackup := true
-		provChan := signalmeow.PerformProvisioning(ctx, container, deviceName, allowBackup)
+		// abort provisioning when the user cancels the setup
+		provCtx, provCancel := context.WithCancel(ctx)
+		defer provCancel()
+		go func() {
+			for provCtx.Err() == nil {
+				if CSgAuthIsCancelled(connId) {
+					LOG_INFO("provisioning cancelled")
+					provCancel()
+					return
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}()
 
-		hasGUI := HasGUI()
-		qrDisplayed := false
+		provChan := signalmeow.PerformProvisioning(provCtx, container, deviceName, allowBackup)
 
 		for resp := range provChan {
 			switch resp.State {
 			case signalmeow.StateProvisioningURLReceived:
 				LOG_DEBUG("provisioning URL received")
-				if hasGUI {
-					qrPath := path + "/tmp/qr.png"
-					qrcode.WriteFile(resp.ProvisioningURL, qrcode.Medium, 512, qrPath)
-					ShowImage(qrPath)
-				} else {
-					qrterminal.GenerateHalfBlock(resp.ProvisioningURL, qrterminal.L, os.Stdout)
-				}
-				qrDisplayed = true
+				CSgAuthShow(connId, AuthStepQr, qrCodeMsg, resp.ProvisioningURL)
 
 			case signalmeow.StateProvisioningDataReceived:
 				LOG_DEBUG("provisioning data received")
@@ -2061,11 +2069,6 @@ func SgLogin(connId int) int {
 				SetState(connId, Disconnected)
 				return -1
 			}
-		}
-
-		// delete temporary image file
-		if qrDisplayed {
-			_ = os.Remove(path + "/tmp/qr.png")
 		}
 
 		LOG_TRACE(fmt.Sprintf("release console"))
@@ -2215,6 +2218,24 @@ func monitorConnectionStatus(connId int, statusChan chan signalmeow.SignalConnec
 			return
 		}
 	}
+}
+
+// SgUnlink removes this linked device from the Signal account.
+func SgUnlink(connId int) int {
+	client := GetClient(connId)
+	if client == nil {
+		return -1
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := client.Unlink(ctx); err != nil {
+		LOG_WARNING(fmt.Sprintf("unlink failed: %v", err))
+		return -1
+	}
+
+	LOG_DEBUG("unlink ok")
+	return 0
 }
 
 func SgLogout(connId int) int {
@@ -2461,7 +2482,12 @@ func SgGetMessages(connId int, chatId string, limit int, fromMsgId string, owner
 }
 
 func SgSendMessage(connId int, chatId string, text string, quotedId string, quotedText string, quotedSender string, filePath string, fileType string, editMsgId string, editMsgSent int, mentionsJson string) int {
-	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + text + ", " + quotedId + ", " + filePath + ", " + fileType + ", " + editMsgId)
+	// braids: no message text in the log
+	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + quotedId + ", " + filePath + ", " + fileType + ", " + editMsgId)
+
+	// braids: "voice:<mime>" sends an audio file as a voice message
+	isVoice := strings.HasPrefix(fileType, "voice:")
+	fileType = strings.TrimPrefix(fileType, "voice:")
 
 	// sanity check arg
 	if connId == -1 {
@@ -2596,7 +2622,12 @@ func SgSendMessage(connId int, chatId string, text string, quotedId string, quot
 					}
 					LOG_TRACE(fmt.Sprintf("attachment sendType=%d mimeSubType=%s isSendAsSpecial=%t", sendType, mimeSubType, isSendAsSpecial))
 
-					if isSendAsSpecial && (mimeSubType == "webp") {
+					if isVoice {
+						LOG_TRACE("send voice message")
+						attachment.ContentType = proto.String("audio/ogg")
+						attachment.Flags = proto.Uint32(uint32(signalpb.AttachmentPointer_VOICE_MESSAGE))
+						dataMsg.Attachments = []*signalpb.AttachmentPointer{attachment}
+					} else if isSendAsSpecial && (mimeSubType == "webp") {
 						LOG_TRACE("send sticker " + fileType)
 						attachment.Flags = proto.Uint32(uint32(signalpb.AttachmentPointer_BORDERLESS))
 						dataMsg.Sticker = &signalpb.DataMessage_Sticker{
@@ -2733,6 +2764,7 @@ func SgGetContacts(connId int) int {
 
 	ctx := context.TODO()
 	client.SendContactSyncRequest(ctx)
+	RefreshGroupNames(connId)
 
 	return 0
 }

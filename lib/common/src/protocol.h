@@ -34,6 +34,61 @@ enum ProtocolFeature
   FeatureArchiveChat = (1 << 8),
   FeaturePinMessage = (1 << 9),
   FeaturePresenceRequiresOnline = (1 << 10),
+  FeatureEditMessagesAnytime = (1 << 11), // braids extension
+  FeatureAvatars = (1 << 12), // braids extension: handles GetAvatarRequest
+  FeatureDescriptions = (1 << 13), // braids extension: handles GetDescriptionRequest
+  FeatureJoinChat = (1 << 14), // braids extension: handles JoinChatRequest
+};
+
+// Interactive authentication (account setup and re-login), braids extension.
+// Protocols do not talk to the terminal directly; they describe each step as an
+// AuthPrompt and pass it to the AuthHandler of the protocol instance (or, when
+// none is set, to the terminal fallback in AuthUtil, lib/ncutil).
+enum AuthStep
+{
+  AuthStepInput = 0, // ask the user for a value (blocking)
+  AuthStepQr = 1,    // show qr code with payload in data (non-blocking)
+  AuthStepInfo = 2,  // show informational text, e.g. a pairing code in data (non-blocking)
+  AuthStepError = 3, // show an error message (non-blocking)
+};
+
+// Well-known AuthPrompt fields
+static const std::string s_AuthFieldPhone = "phone";
+static const std::string s_AuthFieldCode = "code";
+static const std::string s_AuthFieldPassword = "password";
+static const std::string s_AuthFieldUserId = "userId";
+static const std::string s_AuthFieldHomeserver = "homeserver";
+static const std::string s_AuthFieldRecoveryKey = "recoveryKey";
+static const std::string s_AuthFieldFirstName = "firstName";
+static const std::string s_AuthFieldLastName = "lastName";
+static const std::string s_AuthFieldPasskeyResponse = "passkeyResponse";
+static const std::string s_AuthFieldConfirm = "confirm";
+
+struct AuthPrompt
+{
+  AuthStep step = AuthStepInput;
+  std::string field;       // input: one of s_AuthField*
+  std::string message;     // human readable label, instructions or error text
+  std::string data;        // qr payload, pairing code, or default value for input
+  bool isSecret = false;   // input must be masked and never logged
+  bool isOptional = false; // input may be left empty (skip)
+};
+
+class AuthHandler
+{
+public:
+  virtual ~AuthHandler() { }
+
+  // Ask the user for input; blocks until it is available. Returns false if the
+  // user cancelled the authentication.
+  virtual bool Input(const AuthPrompt& p_Prompt, std::string& p_Value) = 0;
+
+  // Show a non-blocking step (qr, info, error).
+  virtual void Show(const AuthPrompt& p_Prompt) = 0;
+
+  // True once the user cancelled; protocols waiting for something else than
+  // input (e.g. a qr scan) poll it to abort the setup.
+  virtual bool IsCancelled() const { return false; }
 };
 
 class Protocol
@@ -60,8 +115,30 @@ public:
   virtual bool Login() = 0;
   virtual bool Logout() = 0;
 
+  // braids extension: ends this device's session at the messenger (the linked
+  // device disappears from the phone / session list), for account removal.
+  // Blocking with a timeout, best effort; called before Logout().
+  virtual bool Unlink()
+  {
+    return false;
+  }
+
   virtual void SendRequest(std::shared_ptr<RequestMessage> p_Request) = 0;
   virtual void SetMessageHandler(const std::function<void(std::shared_ptr<ServiceMessage>)>& p_MessageHandler) = 0;
+
+  // Set before SetupProfile() / Login(); used for setup and for prompts at runtime.
+  void SetAuthHandler(std::shared_ptr<AuthHandler> p_AuthHandler)
+  {
+    m_AuthHandler = p_AuthHandler;
+  }
+
+  std::shared_ptr<AuthHandler> GetAuthHandler() const
+  {
+    return m_AuthHandler;
+  }
+
+protected:
+  std::shared_ptr<AuthHandler> m_AuthHandler;
 };
 
 // Request and notify message types
@@ -99,6 +176,9 @@ enum MessageType
   ReinitRequestType,
   FindMessageRequestType,
   GetGroupMembersRequestType,
+  GetAvatarRequestType, // braids extension
+  GetDescriptionRequestType, // braids extension
+  JoinChatRequestType, // braids extension
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -127,6 +207,9 @@ enum MessageType
   NewGroupMembersNotifyType,
   UpdateArchivedNotifyType,
   MoveChatNotifyType,
+  NewAvatarNotifyType, // braids extension
+  NewDescriptionNotifyType, // braids extension
+  JoinChatNotifyType, // braids extension
 };
 
 struct ContactInfo
@@ -271,6 +354,7 @@ public:
   virtual MessageType GetMessageType() const { return SendMessageRequestType; }
   std::string chatId;
   ChatMessage chatMessage;
+  bool isVoice = false; // braids: send the (Ogg/Opus) audio file as a voice note
 };
 
 class EditMessageRequest : public RequestMessage
@@ -462,6 +546,36 @@ class GetGroupMembersRequest : public RequestMessage
 public:
   virtual MessageType GetMessageType() const { return GetGroupMembersRequestType; }
   std::string chatId;
+};
+
+// Profile picture of a user or chat (for a one-to-one chat the other user's),
+// answered with NewAvatarNotify. Protocols cache the image under their
+// profile dir and may answer from there.
+class GetAvatarRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return GetAvatarRequestType; }
+  std::string id; // user id or chat id
+};
+
+// Description of a group or a user's bio ("about"; for a one-to-one chat the
+// other user's), answered with NewDescriptionNotify.
+class GetDescriptionRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return GetDescriptionRequestType; }
+  std::string id; // user id or chat id
+};
+
+// Join a group / channel / room by invite link, public name or address
+// (protocol specific, e.g. https://t.me/+abc, @name, https://chat.whatsapp.com/abc,
+// #room:server), answered with JoinChatNotify. The chat itself arrives as for
+// any new chat (NewChatsNotify).
+class JoinChatRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return JoinChatRequestType; }
+  std::string link;
 };
 
 // Service messages
@@ -665,6 +779,42 @@ public:
   virtual MessageType GetMessageType() const { return MoveChatNotifyType; }
   std::string chatId;
   std::string newChatId;
+};
+
+// Avatar of a user or chat: a local image file, empty if there is none. Sent
+// for GetAvatarRequest and when the protocol learns of a change.
+class NewAvatarNotify : public ServiceMessage
+{
+public:
+  explicit NewAvatarNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return NewAvatarNotifyType; }
+  std::string id;
+  std::string filePath;
+};
+
+class JoinChatNotify : public ServiceMessage
+{
+public:
+  explicit JoinChatNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return JoinChatNotifyType; }
+  std::string link;
+  bool success = false;
+  std::string chatId; // the joined chat
+  std::string error; // why not, for the user
+};
+
+// Group description or user bio, empty if there is none. Sent for
+// GetDescriptionRequest and when the protocol learns of a change.
+class NewDescriptionNotify : public ServiceMessage
+{
+public:
+  explicit NewDescriptionNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return NewDescriptionNotifyType; }
+  std::string id;
+  std::string description;
 };
 
 class UpdateMuteNotify : public ServiceMessage

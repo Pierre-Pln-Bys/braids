@@ -8,16 +8,23 @@
 #include "duchat.h"
 
 #include <algorithm>
+#include <tuple>
 #include <iostream>
 #include <map>
 
 #include <sys/stat.h>
 
+#include "authutil.h"
+#include "fileutil.h"
 #include "log.h"
 #include "status.h"
 #include "strutil.h"
+#include "timeutil.h"
+#include "timeutil.h"
 
 static const std::string s_GroupId = "The Office_0";
+// a second group whose only unread item is a group event (Angela joined)
+static const std::string s_PartyId = "Party Planning_0";
 
 extern "C" DuChat* CreateDuChat()
 {
@@ -41,18 +48,27 @@ std::string DuChat::GetProfileId() const
 bool DuChat::HasFeature(ProtocolFeature p_ProtocolFeature) const
 {
   static int customFeatures =
-    FeatureAutoGetContactsOnLogin;
+    FeatureAutoGetContactsOnLogin | FeatureEditMessagesAnytime | FeatureAvatars | FeatureDescriptions | FeatureJoinChat;
   return (p_ProtocolFeature & customFeatures);
 }
 
 bool DuChat::IsGroupChat(const std::string& p_ChatId) const
 {
-  return (p_ChatId == s_GroupId);
+  return (p_ChatId == s_GroupId) || (p_ChatId == s_PartyId) || ((p_ChatId.size() > 5) && (p_ChatId.compare(p_ChatId.size() - 5, 5, "_join") == 0));
 }
 
 std::string DuChat::GetSelfId() const
 {
   return "Stanley_0";
+}
+
+int DuChat::ShowcasePersona() const
+{
+  const size_t pos = m_ProfileId.find("_+99");
+  if ((pos == std::string::npos) || m_ProfileId.empty()) return 0;
+
+  const char last = m_ProfileId.back();
+  return ((last >= '1') && (last <= '4')) ? (last - '0') : 0;
 }
 
 std::string DuChat::GetProfileDisplayName() const
@@ -63,12 +79,25 @@ std::string DuChat::GetProfileDisplayName() const
 
 bool DuChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_ProfileId)
 {
-  std::string phoneNumber = StrUtil::GetPhoneNumber();
+  // exercises the auth flow: phone number, then a verification code ("000000" is rejected)
+  std::string phoneNumber;
+  if (!AuthUtil::InputPhoneNumber(m_AuthHandler, phoneNumber)) return false;
+
+  std::string code;
+  while (true)
+  {
+    if (!AuthUtil::Input(m_AuthHandler, s_AuthFieldCode, "Verification code (any, except 000000)", code)) return false;
+
+    if (!code.empty() && (code != "000000")) break;
+
+    AuthUtil::ShowError(m_AuthHandler, "Invalid code, please try again.");
+  }
 
   m_ProfileId = m_ProfileId + "_" + phoneNumber;
   std::string profileDir = p_ProfilesDir + "/" + m_ProfileId;
 
   mkdir(profileDir.c_str(), 0777);
+  m_ProfileDir = profileDir;
 
   p_ProfileId = m_ProfileId;
 
@@ -78,8 +107,8 @@ bool DuChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_Profi
 bool DuChat::LoadProfile(const std::string& p_ProfilesDir, const std::string& p_ProfileId)
 {
   LOG_INFO("load dummy profile");
-  (void)p_ProfilesDir;
   m_ProfileId = p_ProfileId;
+  m_ProfileDir = p_ProfilesDir + "/" + p_ProfileId;
   return true;
 }
 
@@ -274,6 +303,7 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
 
         static std::vector<std::pair<std::string, std::string>> groupMessages =
         {
+          { "Andy", "[Joined]" }, // a group event, shown as a system line
           { "Stanley", "Maybe you should go into your office, close the door, "
             "and make some calls about jobs?" },
           { "Michael", "I have a job." },
@@ -291,16 +321,35 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         std::reverse(groupMessages.begin(), groupMessages.end());
 
         int64_t t = 1237922000;
-        s_Messages.clear();
         newChatsNotify->chatInfos.clear();
 
+        // showcase accounts (phone +99...<n>, for website screenshots) each
+        // get their share of the chats; others get all
+        const int persona = ShowcasePersona();
+        const auto mine = [persona](int p_Index) { return (persona == 0) || ((p_Index % 4) == (persona - 1)); };
+
         // Individual chats
+        int index = -1;
         for (auto& message : messages)
         {
+          ++index;
           std::string name = message.first;
           std::string text = message.second;
           std::string id = name + "_0";
-          bool isUnread = false;
+          if (!mine(index))
+          {
+            // the name is known in every account (group senders)
+            ContactInfo contactInfo;
+            contactInfo.id = id;
+            contactInfo.name = name;
+            newContactsNotify->contactInfos.push_back(contactInfo);
+            t = t - 100;
+            continue;
+          }
+
+          s_Messages[id].clear();
+          // Kevin: two unread messages, for unread counts
+          bool isUnread = (name == "Kevin");
 
           ChatInfo chatInfo;
           chatInfo.id = id;
@@ -322,6 +371,15 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           chatMessage.isRead = !isUnread;
           t = t - 100;
           s_Messages[id].push_back(chatMessage);
+
+          if (isUnread)
+          {
+            // an earlier one (messages are newest first)
+            chatMessage.id = id + "_" + std::to_string(chatMessage.timeSent / 1000 - 1);
+            chatMessage.text = "Hey Stanley.";
+            chatMessage.timeSent -= 1000;
+            s_Messages[id].push_back(chatMessage);
+          }
         }
 
         // Self
@@ -336,7 +394,9 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         }
 
         // Group chat
+        if (mine(0))
         {
+          s_Messages[s_GroupId].clear();
           t = 1237962000;
           ChatInfo chatInfo;
           chatInfo.id = s_GroupId;
@@ -375,6 +435,41 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           }
         }
 
+        // Party Planning: read messages, then an unread group event
+        if (mine(2))
+        {
+          s_Messages[s_PartyId].clear();
+          ChatInfo chatInfo;
+          chatInfo.id = s_PartyId;
+          chatInfo.lastMessageTime = (1237900000LL * 1000);
+          chatInfo.isUnread = true;
+          newChatsNotify->chatInfos.push_back(chatInfo);
+
+          ContactInfo contactInfo;
+          contactInfo.id = s_PartyId;
+          contactInfo.name = "Party Planning";
+          newContactsNotify->contactInfos.push_back(contactInfo);
+
+          // newest first
+          const std::vector<std::tuple<std::string, std::string, bool>> partyMessages = {
+            { "Angela_0", "[Joined]", false },
+            { "Phyllis_0", "Streamers are fine.", true },
+          };
+          int64_t pt = 1237900000;
+          for (const auto& partyMessage : partyMessages)
+          {
+            ChatMessage chatMessage;
+            chatMessage.id = std::get<0>(partyMessage) + "_" + std::to_string(pt);
+            chatMessage.senderId = std::get<0>(partyMessage);
+            chatMessage.text = std::get<1>(partyMessage);
+            chatMessage.timeSent = pt * 1000;
+            chatMessage.isRead = std::get<2>(partyMessage);
+            chatMessage.isOutgoing = false;
+            s_Messages[s_PartyId].push_back(chatMessage);
+            pt -= 100;
+          }
+        }
+
         m_MessageHandler(newChatsNotify);
         m_MessageHandler(newContactsNotify);
       }
@@ -391,7 +486,23 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         newMessagesNotify->cached = false;
         newMessagesNotify->sequence = true;
 
-        newMessagesNotify->chatMessages = s_Messages[getMessagesRequest->chatId];
+        newMessagesNotify->fromMsgId = getMessagesRequest->fromMsgId;
+
+        // newest first: the messages older than fromMsgId (all without it)
+        const std::vector<ChatMessage>& messages = s_Messages[getMessagesRequest->chatId];
+        bool isOlder = getMessagesRequest->fromMsgId.empty();
+        for (const auto& chatMessage : messages)
+        {
+          if (isOlder)
+          {
+            newMessagesNotify->chatMessages.push_back(chatMessage);
+          }
+          else if (chatMessage.id == getMessagesRequest->fromMsgId)
+          {
+            isOlder = true;
+          }
+        }
+
         m_MessageHandler(newMessagesNotify);
       }
       break;
@@ -400,12 +511,234 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       {
         std::shared_ptr<SendMessageRequest> sendMessageRequest =
           std::static_pointer_cast<SendMessageRequest>(p_RequestMessage);
+        const std::string& chatId = sendMessageRequest->chatId;
+        ChatMessage chatMessage = sendMessageRequest->chatMessage;
+        // unique also for messages sent within the same millisecond
+        static int64_t s_LastSent = 0;
+        const int64_t now = std::max(TimeUtil::GetCurrentTimeMSec(), s_LastSent + 1);
+        s_LastSent = now;
+        chatMessage.id = GetSelfId() + "_" + std::to_string(now);
+        chatMessage.senderId = GetSelfId();
+        chatMessage.timeSent = now;
+        chatMessage.isOutgoing = true;
+        chatMessage.isRead = false;
+        for (const auto& quoted : s_Messages[chatId])
+        {
+          if (quoted.id != chatMessage.quotedId) continue;
+
+          chatMessage.quotedText = quoted.text;
+          chatMessage.quotedSender = quoted.senderId;
+        }
+
+        s_Messages[chatId].insert(s_Messages[chatId].begin(), chatMessage);
+
         std::shared_ptr<SendMessageNotify> sendMessageNotify =
           std::make_shared<SendMessageNotify>(m_ProfileId);
         sendMessageNotify->success = true;
-        sendMessageNotify->chatId = sendMessageRequest->chatId;
-        sendMessageNotify->chatMessage = sendMessageRequest->chatMessage;
+        sendMessageNotify->chatId = chatId;
+        sendMessageNotify->chatMessage = chatMessage;
         m_MessageHandler(sendMessageNotify);
+
+        // echo, as real protocols do
+        std::shared_ptr<NewMessagesNotify> newMessagesNotify =
+          std::make_shared<NewMessagesNotify>(m_ProfileId);
+        newMessagesNotify->success = true;
+        newMessagesNotify->chatId = chatId;
+        newMessagesNotify->chatMessages = { chatMessage };
+        m_MessageHandler(newMessagesNotify);
+      }
+      break;
+
+    case EditMessageRequestType:
+      {
+        std::shared_ptr<EditMessageRequest> editMessageRequest =
+          std::static_pointer_cast<EditMessageRequest>(p_RequestMessage);
+        for (auto& chatMessage : s_Messages[editMessageRequest->chatId])
+        {
+          if (chatMessage.id != editMessageRequest->msgId) continue;
+
+          chatMessage.text = editMessageRequest->chatMessage.text;
+          chatMessage.isEdited = true;
+          std::shared_ptr<NewMessagesNotify> newMessagesNotify =
+            std::make_shared<NewMessagesNotify>(m_ProfileId);
+          newMessagesNotify->success = true;
+          newMessagesNotify->chatId = editMessageRequest->chatId;
+          newMessagesNotify->chatMessages = { chatMessage };
+          m_MessageHandler(newMessagesNotify);
+        }
+      }
+      break;
+
+    case DeleteMessageRequestType:
+      {
+        std::shared_ptr<DeleteMessageRequest> deleteMessageRequest =
+          std::static_pointer_cast<DeleteMessageRequest>(p_RequestMessage);
+        std::vector<ChatMessage>& messages = s_Messages[deleteMessageRequest->chatId];
+        messages.erase(std::remove_if(messages.begin(), messages.end(), [&](const ChatMessage& p_Message)
+      {
+        return p_Message.id == deleteMessageRequest->msgId;
+      }), messages.end());
+
+        std::shared_ptr<DeleteMessageNotify> deleteMessageNotify =
+          std::make_shared<DeleteMessageNotify>(m_ProfileId);
+        deleteMessageNotify->success = true;
+        deleteMessageNotify->chatId = deleteMessageRequest->chatId;
+        deleteMessageNotify->msgId = deleteMessageRequest->msgId;
+        deleteMessageNotify->isOutgoing = true;
+        m_MessageHandler(deleteMessageNotify);
+      }
+      break;
+
+    case SendReactionRequestType:
+      {
+        std::shared_ptr<SendReactionRequest> sendReactionRequest =
+          std::static_pointer_cast<SendReactionRequest>(p_RequestMessage);
+        for (auto& chatMessage : s_Messages[sendReactionRequest->chatId])
+        {
+          if (chatMessage.id != sendReactionRequest->msgId) continue;
+
+          Reactions& reactions = chatMessage.reactions;
+          const std::string prev = reactions.senderEmojis[s_ReactionsSelfId];
+          if (!prev.empty() && (reactions.emojiCounts[prev] > 0) && (--reactions.emojiCounts[prev] == 0))
+          {
+            reactions.emojiCounts.erase(prev);
+          }
+
+          if (sendReactionRequest->emoji.empty())
+          {
+            reactions.senderEmojis.erase(s_ReactionsSelfId);
+          }
+          else
+          {
+            reactions.senderEmojis[s_ReactionsSelfId] = sendReactionRequest->emoji;
+            ++reactions.emojiCounts[sendReactionRequest->emoji];
+          }
+
+          std::shared_ptr<NewMessageReactionsNotify> newMessageReactionsNotify =
+            std::make_shared<NewMessageReactionsNotify>(m_ProfileId);
+          newMessageReactionsNotify->chatId = sendReactionRequest->chatId;
+          newMessageReactionsNotify->msgId = sendReactionRequest->msgId;
+          newMessageReactionsNotify->reactions = reactions;
+          m_MessageHandler(newMessageReactionsNotify);
+        }
+      }
+      break;
+
+    case GetAvatarRequestType:
+      {
+        // demo pictures for a few contacts and the group, none for the others
+        std::shared_ptr<GetAvatarRequest> getAvatarRequest =
+          std::static_pointer_cast<GetAvatarRequest>(p_RequestMessage);
+        static const std::map<std::string, std::pair<std::string, std::string>> s_Pictures = {
+          { "Michael_0", { "#2F64C8", "#F5C26B" } },
+          { "Pam_0", { "#C0396B", "#FBE3CF" } },
+          { "Jim_0", { "#0F7678", "#E3F2E8" } },
+          { s_GroupId, { "#A84A1A", "#F7E8DD" } },
+        };
+
+        std::shared_ptr<NewAvatarNotify> newAvatarNotify = std::make_shared<NewAvatarNotify>(m_ProfileId);
+        newAvatarNotify->id = getAvatarRequest->id;
+        auto pit = s_Pictures.find(getAvatarRequest->id);
+        if ((pit != s_Pictures.end()) && !m_ProfileDir.empty())
+        {
+          const std::string dir = m_ProfileDir + "/avatars";
+          mkdir(dir.c_str(), 0700);
+          const std::string path = dir + "/" + getAvatarRequest->id + ".svg";
+          const std::string svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
+            "<rect width=\"64\" height=\"64\" fill=\"" + pit->second.first + "\"/>"
+            "<circle cx=\"32\" cy=\"26\" r=\"12\" fill=\"" + pit->second.second + "\"/>"
+            "<path d=\"M10 64c2-14 11-22 22-22s20 8 22 22z\" fill=\"" + pit->second.second + "\"/></svg>";
+          FileUtil::WriteFile(path, svg);
+          newAvatarNotify->filePath = path;
+        }
+
+        m_MessageHandler(newAvatarNotify);
+      }
+      break;
+
+    case GetGroupMembersRequestType:
+      {
+        // The Office: the people writing in it and self (Stanley)
+        std::shared_ptr<GetGroupMembersRequest> getGroupMembersRequest =
+          std::static_pointer_cast<GetGroupMembersRequest>(p_RequestMessage);
+        std::shared_ptr<NewGroupMembersNotify> newGroupMembersNotify =
+          std::make_shared<NewGroupMembersNotify>(m_ProfileId);
+        newGroupMembersNotify->chatId = getGroupMembersRequest->chatId;
+        if (getGroupMembersRequest->chatId == s_GroupId)
+        {
+          for (const std::string& name : { "Andy", "Dwight", "Jim", "Michael", "Pam", "Stanley" })
+          {
+            ContactInfo contactInfo;
+            contactInfo.id = std::string(name) + "_0";
+            contactInfo.name = name;
+            contactInfo.isSelf = (contactInfo.id == "Stanley_0");
+            newGroupMembersNotify->contactInfos.push_back(contactInfo);
+          }
+        }
+
+        m_MessageHandler(newGroupMembersNotify);
+      }
+      break;
+
+    case JoinChatRequestType:
+      {
+        // test groups: https://dummy.example/join/<Name> joins "<Name>"
+        std::shared_ptr<JoinChatRequest> joinChatRequest = std::static_pointer_cast<JoinChatRequest>(p_RequestMessage);
+        static const std::string s_Prefix = "https://dummy.example/join/";
+        std::shared_ptr<JoinChatNotify> joinChatNotify = std::make_shared<JoinChatNotify>(m_ProfileId);
+        joinChatNotify->link = joinChatRequest->link;
+        const std::string name = (joinChatRequest->link.rfind(s_Prefix,
+                                                              0) ==
+                                  0) ? joinChatRequest->link.substr(s_Prefix.size()) : "";
+        if (name.empty())
+        {
+          joinChatNotify->error = "Not a Dummy invite link (https://dummy.example/join/Name).";
+          m_MessageHandler(joinChatNotify);
+          break;
+        }
+
+        ContactInfo contactInfo;
+        contactInfo.id = name + "_join";
+        contactInfo.name = name;
+        std::shared_ptr<NewContactsNotify> newContactsNotify = std::make_shared<NewContactsNotify>(m_ProfileId);
+        newContactsNotify->contactInfos.push_back(contactInfo);
+        m_MessageHandler(newContactsNotify);
+
+        ChatInfo chatInfo;
+        chatInfo.id = contactInfo.id;
+        chatInfo.lastMessageTime = TimeUtil::GetCurrentTimeMSec();
+        std::shared_ptr<NewChatsNotify> newChatsNotify = std::make_shared<NewChatsNotify>(m_ProfileId);
+        newChatsNotify->success = true;
+        newChatsNotify->chatInfos.push_back(chatInfo);
+        m_MessageHandler(newChatsNotify);
+
+        joinChatNotify->success = true;
+        joinChatNotify->chatId = chatInfo.id;
+        m_MessageHandler(joinChatNotify);
+      }
+      break;
+
+    case GetDescriptionRequestType:
+      {
+        // demo description for the group and a bio, none for the others
+        std::shared_ptr<GetDescriptionRequest> getDescriptionRequest =
+          std::static_pointer_cast<GetDescriptionRequest>(p_RequestMessage);
+        static const std::map<std::string, std::string> s_Descriptions = {
+          { s_GroupId, "Dunder Mifflin Scranton.\nPaper sales and everything else: https://example.com/dundermifflin" },
+          { "Michael_0", "World's best boss" },
+        };
+
+        std::shared_ptr<NewDescriptionNotify> newDescriptionNotify =
+          std::make_shared<NewDescriptionNotify>(m_ProfileId);
+        newDescriptionNotify->id = getDescriptionRequest->id;
+        auto dit = s_Descriptions.find(getDescriptionRequest->id);
+        if (dit != s_Descriptions.end())
+        {
+          newDescriptionNotify->description = dit->second;
+        }
+
+        m_MessageHandler(newDescriptionNotify);
       }
       break;
 

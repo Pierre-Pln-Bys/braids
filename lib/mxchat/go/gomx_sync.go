@@ -334,6 +334,11 @@ func (conn *MxConn) applyStateEvent(ctx context.Context, roomID id.RoomID, evt *
 			conn.stateDirty = true
 		}
 
+	case event.StateTopic:
+		if content, ok := evt.Content.Parsed.(*event.TopicEventContent); ok {
+			CMxNewDescriptionNotify(conn.connId, string(roomID), content.Topic)
+		}
+
 	case event.StateCanonicalAlias:
 		if content, ok := evt.Content.Parsed.(*event.CanonicalAliasEventContent); ok {
 			ri.Alias = string(content.Alias)
@@ -443,10 +448,6 @@ func (conn *MxConn) handleJoinedRoom(ctx context.Context, roomID id.RoomID, room
 	var msgs []*OutMsg
 	for _, evt := range room.Timeline.Events {
 		evt.RoomID = roomID
-		if evt.StateKey != nil {
-			continue
-		}
-
 		msg := conn.handleTimelineEvent(ctx, evt, modeSync)
 		if msg != nil {
 			msgs = append(msgs, msg)

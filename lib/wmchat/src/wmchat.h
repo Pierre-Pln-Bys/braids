@@ -49,6 +49,7 @@ public:
 
   bool Login();
   bool Logout();
+  bool Unlink();
 
   void Process();
 
@@ -110,6 +111,9 @@ void WmNewContactsNotify(int p_ConnId, char* p_ChatId, char* p_Name, char* p_Pho
 void WmNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned,
                       int p_IsArchived, int p_LastMessageTime);
 void WmNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
+void WmNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+void WmNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
+void WmJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
 void WmNewMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe,
                          char* p_ReplyId, char* p_FileId, char* p_FilePath, int p_FileStatus, int p_TimeSent,
                          int p_IsRead, int p_IsEdited);
@@ -128,6 +132,9 @@ void WmUpdateArchivedNotify(int p_ConnId, char* p_ChatId, int p_IsArchived);
 void WmUpdatePinNotify(int p_ConnId, char* p_ChatId, int p_IsPinned, int p_TimePinned);
 void WmReinit(int p_ConnId);
 void WmSetProtocolUiControl(int p_ConnId, int p_IsTakeControl);
+void WmAuthShow(int p_ConnId, int p_Step, char* p_Message, char* p_Data);
+int WmAuthIsCancelled(int p_ConnId);
+char* WmAuthInput(int p_ConnId, char* p_Field, char* p_Message, int p_IsSecret);
 void WmSetStatus(int p_ConnId, int p_Flags);
 void WmClearStatus(int p_ConnId, int p_Flags);
 int WmAppConfigGetNum(char* p_Param);

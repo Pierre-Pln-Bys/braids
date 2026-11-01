@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+# test_matrix.py
+#
+# Copyright (c) 2026 braids contributors
+#
+# braids is distributed under the GNU AGPL v3 license, see LICENSE for details.
+
+"""braidsd integration test with Matrix, against the local Synapse from
+lib/mxchat/test/homeserver.sh and the scripted peer from lib/mxchat/test/peer.
+
+braidsd logs in as a fresh user "alice" (event based setup incl. recovery key),
+a peer plays alice's other client (Element: cross-signing, key backup, joins
+rooms) and another peer plays "bob". Exits with 77 (skipped) when the
+homeserver is not running (fails instead when BRAIDS_REQUIRE_HOMESERVER is set).
+"""
+
+import argparse
+import json
+import os
+import queue
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from braidsclient import Braidsd  # noqa: E402
+
+SKIP = 77
+
+
+def check(cond, msg):
+    if not cond:
+        raise AssertionError(msg)
+    print(f"ok - {msg}")
+
+
+class Peer:
+    def __init__(self, binary, hs, user, password, store, autojoin=True):
+        args = [binary, "-hs", hs, "-user", user, "-pass", password, "-store", store,
+                f"-autojoin={'true' if autojoin else 'false'}"]
+        self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.events = queue.Queue()
+        self.results = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+        self.ready = self.wait("ready", timeout=60)
+
+    def _read(self):
+        for line in self.proc.stdout:
+            msg = json.loads(line)
+            (self.results if msg.get("type") == "result" else self.events).put(msg)
+
+    def cmd(self, line, timeout=60):
+        self.proc.stdin.write(line + "\n")
+        self.proc.stdin.flush()
+        res = self.results.get(timeout=timeout)
+        if "error" in res:
+            raise RuntimeError(f"peer {line}: {res['error']}")
+        return res
+
+    def wait(self, typ, predicate=None, timeout=60):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                msg = self.events.get(timeout=max(0.1, deadline - time.time()))
+            except queue.Empty:
+                continue
+            if msg.get("type") == typ and (predicate is None or predicate(msg)):
+                return msg
+        raise TimeoutError(f"peer: no {typ}")
+
+    def close(self):
+        if self.proc.poll() is None:
+            self.proc.stdin.write("quit\n")
+            self.proc.stdin.flush()
+            self.proc.wait(timeout=30)
+
+
+def wait_until(func, msg, timeout=60):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = func()
+        if result:
+            return result
+        time.sleep(0.2)
+    raise AssertionError(f"timeout: {msg}")
+
+
+def register_user(container, hs, user, password):
+    subprocess.run(["docker", "exec", container, "register_new_matrix_user", "-c", "/data/homeserver.yaml",
+                    "-u", user, "-p", password, "--no-admin", hs], check=True, capture_output=True)
+
+
+def setup_account(d, user_id, hs, password, recovery_key):
+    setup_id = d.call("accounts.add", {"protocol": "Matrix"})["setupId"]
+
+    def next_input():
+        return d.wait_event("account.auth", lambda p: p.get("setupId") == setup_id and p["step"] == "input",
+                            timeout=120)
+
+    step = next_input()
+    check(step["field"] == "userId", "matrix setup asks for user id")
+    d.call("accounts.authInput", {"setupId": setup_id, "field": "userId", "value": user_id})
+    step = next_input()
+    check(step["field"] == "homeserver" and step["isOptional"], "matrix setup asks for homeserver")
+    d.call("accounts.authInput", {"setupId": setup_id, "field": "homeserver", "value": hs})
+    step = next_input()
+    check(step["field"] == "password" and step["isSecret"], "matrix setup asks for secret password")
+    d.call("accounts.authInput", {"setupId": setup_id, "field": "password", "value": password})
+    step = next_input()
+    check(step["field"] == "recoveryKey" and step["isSecret"], "matrix setup asks for recovery key")
+    d.call("accounts.authInput", {"setupId": setup_id, "field": "recoveryKey", "value": recovery_key})
+    d.wait_event("account.auth", lambda p: p.get("setupId") == setup_id and "verified" in p["message"],
+                 timeout=120)
+    check(True, "device verified with recovery key")
+    added = d.wait_event("account.added", lambda p: p["setupId"] == setup_id, timeout=120)
+    return added["account"]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--braidsd", required=True)
+    parser.add_argument("--peer-src", required=True, help="lib/mxchat/test/peer")
+    parser.add_argument("--hs", default="http://localhost:8008")
+    parser.add_argument("--container", default="nchat-mx-synapse")
+    args = parser.parse_args()
+
+    try:
+        urllib.request.urlopen(args.hs + "/_matrix/client/versions", timeout=2)
+    except Exception:
+        print(f"skip: no homeserver at {args.hs} (lib/mxchat/test/homeserver.sh start)")
+        # CI sets this, so a homeserver that failed to start is not a silent skip
+        return 1 if os.environ.get("BRAIDS_REQUIRE_HOMESERVER") else SKIP
+
+    tmp = tempfile.mkdtemp(prefix="braidsd-mx-")
+    procs = []
+    try:
+        peer_bin = os.path.join(tmp, "peer")
+        subprocess.run(["go", "build", "-tags", "goolm", "-o", peer_bin, "."], cwd=args.peer_src, check=True)
+
+        suffix = str(int(time.time()))
+        alice, bob = f"alice{suffix}", f"bob{suffix}"
+        alice_id, bob_id = f"@{alice}:localhost", f"@{bob}:localhost"
+        register_user(args.container, args.hs, alice, "pw-alice")
+        register_user(args.container, args.hs, bob, "pw-bob")
+
+        # alice's other client sets up cross-signing and key backup, like Element
+        element = Peer(peer_bin, args.hs, alice, "pw-alice", os.path.join(tmp, "element"))
+        procs.append(element)
+        recovery_key = element.cmd("bootstrap")["recovery_key"]
+        bob_peer = Peer(peer_bin, args.hs, bob, "pw-bob", os.path.join(tmp, "bob"))
+        procs.append(bob_peer)
+
+        confdir = os.path.join(tmp, "conf")
+        d = Braidsd(args.braidsd, confdir)
+        account = setup_account(d, alice_id, args.hs, "pw-alice", recovery_key)
+        account_id = account["accountId"]
+        check(account["protocol"] == "Matrix", "matrix account added")
+        check(account["capabilities"]["editWindowSec"] == -1, "matrix edit window unlimited")
+        wait_until(lambda: d.call("accounts.list")[0]["state"] == "online", "account online")
+        check(True, "account online")
+
+        # encrypted room from bob, joined through alice's other client
+        room = bob_peer.cmd(f"create {alice_id} encrypted braids test")["room"]
+        element.wait("autojoin", lambda m: m["room"] == room)
+        chat = wait_until(lambda: [c for c in d.call("chats.list") if c["id"] == room], "room in chat list")[0]
+        check(chat["accountId"] == account_id, "room shown in chat list")
+        wait_until(lambda: d.call("chats.get", {"accountId": account_id, "chatId": room})["name"] == "braids test",
+                   "room name")
+        check(True, "room name resolved")
+        d.call("chats.setCurrent", {"accountId": account_id, "chatId": room})
+
+        # receive
+        sent = bob_peer.cmd(f"send {room} hello **alice**")["event"]
+        added = d.wait_event("message.added", lambda p: p["id"] == sent, timeout=60)
+        check(added["text"] == "hello *alice*" or "alice" in added["text"], "message from bob received")
+        check(added["senderId"] == bob_id and not added["isOutgoing"], "sender is bob")
+        notification = d.wait_event("notification", lambda p: p["msgId"] == sent, timeout=30)
+        check(notification["chatName"] == "braids test", "notification for new message")
+
+        # read receipt
+        d.call("messages.markRead", {"accountId": account_id, "chatId": room, "msgId": sent})
+        bob_peer.wait("receipt", lambda m: m["event"] == sent)
+        check(True, "read receipt sent")
+
+        # reply from braidsd
+        d.call("messages.send", {"accountId": account_id, "chatId": room, "text": "hi _bob_", "quotedId": sent})
+        reply = bob_peer.wait("message", lambda m: m["sender"] == alice_id)
+        check(reply["encrypted"], "reply sent encrypted")
+        check(reply.get("relates", {}).get("m.in_reply_to", {}).get("event_id") == sent, "reply relates to quote")
+        own = d.wait_event("message.added", lambda p: p["id"] == reply["id"], timeout=60)
+        check(own["isOutgoing"] and own["quoted"]["id"] == sent, "own reply echoed with quote")
+
+        # edit from braidsd
+        d.call("messages.edit", {"accountId": account_id, "chatId": room, "msgId": own["id"], "text": "hi bob!"})
+        edit = bob_peer.wait("message", lambda m: m.get("new_body") is not None)
+        check(edit["new_body"] == "hi bob!", "edit received by bob")
+        updated = d.wait_event("message.updated", lambda p: p["id"] == own["id"] and p["isEdited"], timeout=60)
+        check(updated["text"] == "hi bob!", "edit shown in place")
+
+        # reactions both ways
+        bob_peer.cmd(f"react {room} {own['id']} 👍")
+        reacted = d.wait_event("message.updated", lambda p: p["id"] == own["id"] and p["reactions"]["counts"],
+                               timeout=60)
+        check(reacted["reactions"]["counts"].get("👍") == 1, "reaction from bob shown")
+        d.call("reactions.send", {"accountId": account_id, "chatId": room, "msgId": sent, "emoji": "🎉"})
+        reaction = bob_peer.wait("reaction", lambda m: m["target"] == sent)
+        check(reaction["key"] == "🎉", "reaction sent to bob")
+
+        # typing
+        bob_peer.cmd(f"typing {room} on")
+        typing = d.wait_event("typing", lambda p: p["chatId"] == room and p["isTyping"], timeout=30)
+        check(typing["userId"] == bob_id, "typing from bob")
+
+        # redaction from bob
+        gone = bob_peer.cmd(f"send {room} to be deleted")["event"]
+        d.wait_event("message.added", lambda p: p["id"] == gone, timeout=60)
+        bob_peer.cmd(f"redact {room} {gone}")
+        # removed or marked deleted, depending on the message_delete app config
+        d.wait_event(("message.removed", "message.updated"),
+                     lambda p: (p.get("msgId") == gone) or (p.get("id") == gone and p["isDeleted"]), timeout=60)
+        check(True, "redaction shown")
+
+        # history paging
+        for i in range(25):
+            bob_peer.cmd(f"send {room} history {i}")
+        d.wait_event("message.added", lambda p: p["text"] == "history 24", timeout=120)
+        page = d.call("messages.get", {"accountId": account_id, "chatId": room, "limit": 10})
+        check(len(page["messages"]) == 10 and page["messages"][-1]["text"] == "history 24", "latest page")
+        older = d.call("messages.get", {"accountId": account_id, "chatId": room,
+                                        "fromMsgId": page["messages"][0]["id"], "limit": 10})
+        check(older["messages"] and older["messages"][-1]["time"] <= page["messages"][0]["time"], "older page")
+
+        # encrypted image from bob: typed as image, downloadable
+        png = os.path.join(tmp, "photo.png")
+        with open(png, "wb") as f:
+            f.write(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                                  "1f15c4890000000d49444154789c63f8cfc0f01f0005000201e221bc"
+                                  "330000000049454e44ae426082"))
+        img = bob_peer.cmd(f"sendfile {room} {png}")["event"]
+        imsg = d.wait_event("message.added", lambda p: p["id"] == img, timeout=60)
+        check(imsg["file"] and imsg["file"]["mimeType"] == "image/png", "image typed as image/png")
+        d.call("files.download", {"accountId": account_id, "chatId": room, "msgId": img})
+        dl = d.wait_event("message.updated", lambda p: p["id"] == img and p["file"]["status"] == "downloaded", timeout=60)
+        check(os.path.isfile(dl["file"]["path"]) and dl["file"]["mimeType"] == "image/png", "image downloaded")
+
+        # forward the received image (as the app does): alone and with a caption
+        d.call("messages.send", {"accountId": account_id, "chatId": room, "filePath": dl["file"]["path"]})
+        fwd = bob_peer.wait("message", lambda m: m["sender"] == alice_id and m.get("file"), timeout=60)
+        print("forwarded image:", {k: fwd.get(k) for k in ("msgtype", "body", "file_size", "file_error")}, flush=True)
+        check(fwd["msgtype"] == "m.image" and fwd.get("file_size", 0) > 0, "forwarded image arrives as image")
+        d.call("messages.send", {"accountId": account_id, "chatId": room, "filePath": dl["file"]["path"],
+                                 "text": "_Forwarded from bob_\nlook at this"})
+        fwd2 = bob_peer.wait("message", lambda m: m["sender"] == alice_id and m.get("file") and m["id"] != fwd["id"],
+                             timeout=60)
+        print("forwarded image with caption:", {k: fwd2.get(k) for k in ("msgtype", "body", "html", "file_size")},
+              flush=True)
+        check(fwd2["msgtype"] == "m.image" and fwd2.get("file_size", 0) > 0, "forwarded image with caption arrives")
+        check("look at this" in (fwd2.get("body") or "") + (fwd2.get("html") or ""), "caption sent with the image")
+
+        # voice message: m.audio (with the voice marker) from an Ogg/Opus recording
+        voice_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib/mxchat/go/testdata/voice.ogg")
+        voice = os.path.join(confdir, "voice-message.ogg")
+        shutil.copy(voice_src, voice)
+        d.call("messages.send", {"accountId": account_id, "chatId": room, "filePath": voice, "isVoice": True})
+        vmsg = bob_peer.wait("message", lambda m: m["sender"] == alice_id and m.get("msgtype") == "m.audio", timeout=60)
+        print("voice message:", {k: vmsg.get(k) for k in ("msgtype", "body", "file_size", "voice", "duration")}, flush=True)
+        check(vmsg.get("file_size", 0) > 0, "voice message arrives as m.audio")
+        check(vmsg.get("voice") and 1300 <= vmsg.get("duration", 0) <= 1800, "voice marker and duration")
+
+        # shared media of the room: the received image (and the forwarded ones)
+        def room_media():
+            items = d.call("media.list", {"accountId": account_id, "chatId": room, "kind": "media"})["items"]
+            return img in [m["id"] for m in items] and items
+        media = wait_until(room_media, "media.list has the received image")
+        check(all(m["file"]["mimeType"].startswith("image/") for m in media), "media.list on Matrix")
+        check([m["time"] for m in media] == sorted((m["time"] for m in media), reverse=True), "media newest first")
+
+        # reply from bob: matrix sends only the quoted id, the text comes from the model
+        quoted_id = page["messages"][-3]["id"]
+        rep = bob_peer.cmd(f"reply {room} {quoted_id} answer to history")["event"]
+        rmsg = d.wait_event("message.added", lambda p: p["id"] == rep, timeout=60)
+        check(rmsg["quoted"]["id"] == quoted_id and rmsg["quoted"]["text"] == "history 22",
+              "reply shows the quoted text")
+
+        # members
+        members = d.call("members.get", {"accountId": account_id, "chatId": room})
+        check({alice_id, bob_id} <= {m["id"] for m in members["members"]}, "members of room")
+
+        # room topic as description
+        bob_peer.cmd(f"topic {room} all about braids")
+        d.call("descriptions.get", {"accountId": account_id, "ids": [room]})
+        wait_until(lambda: d.call("descriptions.get", {"accountId": account_id, "ids": [room]})["descriptions"].get(room)
+                   == "all about braids", "room topic")
+        check(True, "room topic as description")
+
+        # join a public room by alias
+        alias = f"braids{suffix}"
+        public_room = bob_peer.cmd(f"publicroom {alias} public braids")["room"]
+        d.call("chats.join", {"accountId": account_id, "link": f"#{alias}:localhost"})
+        joined = d.wait_event("chat.joined", lambda p: p["accountId"] == account_id, timeout=60)
+        check(joined["success"] and joined["chatId"] == public_room, "joined public room by alias")
+        wait_until(lambda: [c for c in d.call("chats.list") if c["id"] == public_room], "joined room in chat list")
+        check(True, "joined room in chat list")
+        # membership events are system messages (the own join here)
+        def own_join():
+            msgs = d.call("messages.get", {"accountId": account_id, "chatId": public_room, "limit": 30})["messages"]
+            return [m for m in msgs if m["system"] == "joined" and m["isOutgoing"]]
+        wait_until(own_join, "own join shown as a system message")
+        check(True, "own join shown as a system message")
+        d.call("chats.join", {"accountId": account_id, "link": "not a room"})
+        failed = d.wait_event("chat.joined", lambda p: not p["success"], timeout=30)
+        check("Not a Matrix room" in failed["error"], "invalid join link reported")
+
+        # avatars: bob's own and the room's
+        bob_peer.cmd(f"avatar {png}")
+        bob_peer.cmd(f"roomavatar {room} {png}")
+        got = d.call("avatars.get", {"accountId": account_id, "ids": [bob_id, room, alice_id]})
+        check(got["avatars"] == {}, "avatars requested from the protocol")
+        avatars = {}
+        while len(avatars) < 3:
+            ev = d.wait_event("avatar.updated", lambda p: p["accountId"] == account_id, timeout=60)
+            avatars[ev["id"]] = ev["path"]
+        for who in (bob_id, room):
+            with open(avatars[who], "rb") as f:
+                check(f.read(4) == b"\x89PNG", f"avatar of {'bob' if who == bob_id else 'room'} downloaded")
+        check(avatars[alice_id] == "", "no avatar: empty path")
+        again = d.call("avatars.get", {"accountId": account_id, "ids": [bob_id, alice_id]})
+        check(again["avatars"] == {bob_id: avatars[bob_id], alice_id: ""}, "known avatars returned directly")
+        check(d.close() == 0, "clean exit")
+
+        # while braidsd is stopped: a message, pages of state events only, then
+        # more than the sync timeline limit (30), so the gap is backfilled from
+        # the server when paging back
+        noise = bob_peer.cmd(f"send {room} before noise")["event"]
+        for i in range(40):
+            bob_peer.cmd(f"topic {room} topic {i}")
+        for i in range(32):
+            bob_peer.cmd(f"send {room} filler {i}")
+
+        # restart: loaded without login, history from cache, receives new messages
+        d = Braidsd(args.braidsd, confdir)
+        wait_until(lambda: [c for c in d.call("chats.list") if c["id"] == room], "room after restart")
+        page = wait_until(lambda: (lambda p: p["messages"] and p["messages"][-1]["text"] == "filler 31" and p)(
+            d.call("messages.get", {"accountId": account_id, "chatId": room, "limit": 5})), "history after restart")
+        check(True, "history after restart")
+        # reply quoting a message that is not loaded
+        first = bob_peer.cmd(f"reply {room} {quoted_id} quoting an old one")["event"]
+        d.wait_event(("message.added", "message.updated"),
+                     lambda p: p.get("id") == first and p["quoted"] and p["quoted"]["text"] == "history 22",
+                     timeout=60)
+        check(True, "quoted text of a message not loaded is fetched")
+
+        oldest, found = page["messages"][0]["id"], False
+        for _ in range(15):
+            older = d.call("messages.get", {"accountId": account_id, "chatId": room, "fromMsgId": oldest,
+                                            "limit": 12}, timeout=90)
+            if not older["messages"]:
+                break
+            found = any(m["id"] == noise for m in older["messages"])
+            if found:
+                break
+            oldest = older["messages"][0]["id"]
+        check(found, "paging back across state-only pages")
+        texts = {m["text"] for m in d.call("messages.get", {"accountId": account_id, "chatId": room,
+                                                             "limit": 200})["messages"]}
+        check({f"filler {i}" for i in range(32)} <= texts, "no messages missing in the backfilled gap")
+
+        sent = bob_peer.cmd(f"send {room} after restart")["event"]
+        d.wait_event("message.added", lambda p: p["id"] == sent, timeout=60)
+        check(True, "receives after restart")
+
+        log = open(os.path.join(confdir, "log.txt")).read()
+        check("pw-alice" not in log and recovery_key not in log, "no password or recovery key in log")
+
+        d.call("accounts.remove", {"accountId": account_id})
+        d.wait_event("account.removed", lambda p: p["accountId"] == account_id, timeout=60)
+        check(d.call("accounts.list") == [], "account removed")
+        check(d.close() == 0, "clean exit after removal")
+    finally:
+        for proc in procs:
+            try:
+                proc.close()
+            except Exception:
+                pass
+        if os.environ.get("BRAIDS_KEEP_TMP"):
+            print(f"kept {tmp}")
+        else:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    print("all tests passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

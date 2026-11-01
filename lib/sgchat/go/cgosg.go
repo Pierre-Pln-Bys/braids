@@ -12,6 +12,8 @@ package main
 // extern void SgNewContactsNotify(int p_ConnId, char* p_ChatId, char* p_Name, char* p_Phone, int p_IsSelf, int p_IsAlias, int p_Notify);
 // extern void SgNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, int p_IsArchived, int p_LastMessageTime);
 // extern void SgNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
+// extern void SgNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+// extern void SgNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 // extern void SgNewMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe, char* p_QuotedId, char* p_FileId, char* p_FilePath, int p_FileStatus, int p_TimeSent, int p_IsRead, int p_IsEdited);
 // extern void SgNewHistoryMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe, char* p_QuotedId, char* p_FileId, char* p_FilePath, int p_FileStatus, int p_TimeSent, int p_IsRead, int p_IsEdited, char* p_FromMsgId, int p_Notify);
 // extern void SgNewStatusNotify(int p_ConnId, char* p_UserId, int p_IsOnline, int p_TimeSeen);
@@ -27,6 +29,8 @@ package main
 // extern void SgUpdatePinNotify(int p_ConnId, char* p_ChatId, int p_IsPinned, int p_TimePinned);
 // extern void SgReinit(int p_ConnId);
 // extern void SgSetProtocolUiControl(int p_ConnId, int p_IsTakeControl);
+// extern void SgAuthShow(int p_ConnId, int p_Step, char* p_Message, char* p_Data);
+// extern int SgAuthIsCancelled(int p_ConnId);
 // extern void SgSetStatus(int p_ConnId, int p_Flags);
 // extern void SgClearStatus(int p_ConnId, int p_Flags);
 // extern int SgAppConfigGetNum(char* p_Param);
@@ -54,6 +58,11 @@ func CSgLogin(connId int) int {
 	return SgLogin(connId)
 }
 
+//export CSgUnlink
+func CSgUnlink(connId int) int {
+	return SgUnlink(connId)
+}
+
 //export CSgLogout
 func CSgLogout(connId int) int {
 	return SgLogout(connId)
@@ -77,6 +86,16 @@ func CSgGetMessages(connId int, chatId *C.char, limit int, fromMsgId *C.char, ow
 //export CSgSendMessage
 func CSgSendMessage(connId int, chatId *C.char, text *C.char, quotedId *C.char, quotedText *C.char, quotedSender *C.char, filePath *C.char, fileType *C.char, editMsgId *C.char, editMsgSent int, mentionsJson *C.char) int {
 	return SgSendMessage(connId, C.GoString(chatId), C.GoString(text), C.GoString(quotedId), C.GoString(quotedText), C.GoString(quotedSender), C.GoString(filePath), C.GoString(fileType), C.GoString(editMsgId), editMsgSent, C.GoString(mentionsJson))
+}
+
+//export CSgGetAvatar
+func CSgGetAvatar(connId int, avatarId *C.char) int {
+	return SgGetAvatar(connId, C.GoString(avatarId))
+}
+
+//export CSgGetDescription
+func CSgGetDescription(connId int, id *C.char) int {
+	return SgGetDescription(connId, C.GoString(id))
 }
 
 //export CSgGetGroupMembers
@@ -147,6 +166,14 @@ func CSgNewChatsNotify(connId int, chatId string, isUnread int, isMuted int, isP
 	C.SgNewChatsNotify(C.int(connId), C.CString(chatId), C.int(isUnread), C.int(isMuted), C.int(isPinned), C.int(isArchived), C.int(lastMessageTime))
 }
 
+func CSgNewAvatarNotify(connId int, avatarId string, filePath string) {
+	C.SgNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath))
+}
+
+func CSgNewDescriptionNotify(connId int, id string, description string) {
+	C.SgNewDescriptionNotify(C.int(connId), C.CString(id), C.CString(description))
+}
+
 func CSgNewGroupMembersNotify(connId int, chatId string, membersJson string) {
 	C.SgNewGroupMembersNotify(C.int(connId), C.CString(chatId), C.CString(membersJson))
 }
@@ -209,6 +236,22 @@ func CSgReinit(connId int) {
 
 func CSgSetProtocolUiControl(connId int, isTakeControl int) {
 	C.SgSetProtocolUiControl(C.int(connId), C.int(isTakeControl))
+}
+
+// keep in sync with AuthStep in protocol.h
+const (
+	AuthStepInput = 0
+	AuthStepQr    = 1
+	AuthStepInfo  = 2
+	AuthStepError = 3
+)
+
+func CSgAuthIsCancelled(connId int) bool {
+	return C.SgAuthIsCancelled(C.int(connId)) == 1
+}
+
+func CSgAuthShow(connId int, step int, message string, data string) {
+	C.SgAuthShow(C.int(connId), C.int(step), C.CString(message), C.CString(data))
 }
 
 func CSgSetStatus(connId int, flags int) {

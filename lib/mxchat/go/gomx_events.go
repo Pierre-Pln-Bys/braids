@@ -144,6 +144,11 @@ func (conn *MxConn) handleTimelineEvent(ctx context.Context, evt *event.Event, m
 	case event.EventMessage, event.EventSticker:
 		return conn.messageEvent(ctx, evt, mode)
 
+	case event.StateCreate, event.StateMember, event.StateRoomName, event.StateTopic, event.StateRoomAvatar:
+		if evt.StateKey != nil {
+			return conn.stateMessage(ctx, evt)
+		}
+
 	case event.EventReaction:
 		conn.reactionEvent(evt)
 		return nil
@@ -157,6 +162,109 @@ func (conn *MxConn) handleTimelineEvent(ctx context.Context, evt *event.Event, m
 	}
 
 	return nil
+}
+
+// stateMessage turns group events (joined, left, renamed, ...) into messages
+// with the bracketed texts the other protocols use ("[Joined]", "[Added Pam]"),
+// which braidsd shows as system lines. Profile changes are not shown.
+func (conn *MxConn) stateMessage(ctx context.Context, evt *event.Event) *OutMsg {
+	if evt.Content.Parsed == nil {
+		if err := evt.Content.ParseRaw(evt.Type); err != nil && !errors.Is(err, event.ErrContentAlreadyParsed) {
+			return nil
+		}
+	}
+
+	text := ""
+	switch evt.Type {
+	case event.StateCreate:
+		text = "[Created]"
+
+	case event.StateRoomName:
+		if content, ok := evt.Content.Parsed.(*event.RoomNameEventContent); ok && content.Name != "" {
+			text = "[Changed group name to " + content.Name + "]"
+		}
+
+	case event.StateTopic:
+		text = "[Changed group description]"
+
+	case event.StateRoomAvatar:
+		text = "[Changed group avatar]"
+
+	case event.StateMember:
+		content, ok := evt.Content.Parsed.(*event.MemberEventContent)
+		if !ok {
+			return nil
+		}
+
+		prev := event.Membership("")
+		if evt.Unsigned.PrevContent != nil {
+			_ = evt.Unsigned.PrevContent.ParseRaw(evt.Type)
+			if prevContent, ok := evt.Unsigned.PrevContent.Parsed.(*event.MemberEventContent); ok {
+				prev = prevContent.Membership
+			}
+		}
+
+		target := id.UserID(*evt.StateKey)
+		self := (target == evt.Sender)
+		switch content.Membership {
+		case event.MembershipJoin:
+			if prev != event.MembershipJoin {
+				text = "[Joined]"
+			}
+
+		case event.MembershipInvite:
+			if prev != event.MembershipInvite {
+				text = "[Invited " + conn.userName(ctx, evt.RoomID, target) + "]"
+			}
+
+		case event.MembershipLeave, event.MembershipBan:
+			if prev == event.MembershipJoin || content.Membership == event.MembershipBan {
+				if self {
+					text = "[Left]"
+				} else {
+					text = "[Removed " + conn.userName(ctx, evt.RoomID, target) + "]"
+				}
+			}
+		}
+	}
+
+	if text == "" {
+		return nil
+	}
+
+	conn.mu.Lock()
+	isRead := conn.isReadLocked(evt.RoomID, evt.Sender, int64(evt.Timestamp))
+	conn.mu.Unlock()
+
+	return &OutMsg{
+		ChatID:   string(evt.RoomID),
+		MsgID:    string(evt.ID),
+		SenderID: string(evt.Sender),
+		Text:     text,
+		TimeSent: int64(evt.Timestamp),
+		FromMe:   (evt.Sender == conn.session.UserID),
+		IsRead:   isRead,
+	}
+}
+
+// extensionByType returns the usual file extension of a mime type; the mime
+// library lists them alphabetically (.f4v first for video/mp4, .jfif for
+// image/jpeg), so common ones are preferred.
+func extensionByType(mimeType string) string {
+	exts, err := mime.ExtensionsByType(mimeType)
+	if err != nil || len(exts) == 0 {
+		return ""
+	}
+
+	for _, preferred := range []string{".jpg", ".jpeg", ".png", ".mp4", ".mov", ".ogg", ".mp3", ".m4a", ".aac", ".webp", ".pdf"} {
+		for _, ext := range exts {
+			if ext == preferred {
+				return ext
+			}
+		}
+	}
+
+	return exts[0]
 }
 
 func (conn *MxConn) utdMessage(evt *event.Event) *OutMsg {
@@ -233,9 +341,7 @@ func (conn *MxConn) fileInfoFor(evt *event.Event, content *event.MessageEventCon
 
 	ext := filepath.Ext(name)
 	if ext == "" && mimeType != "" {
-		if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
-			ext = exts[0]
-		}
+		ext = extensionByType(mimeType)
 	}
 
 	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
@@ -520,6 +626,28 @@ func (conn *MxConn) backfill(roomID id.RoomID, fromMsgId id.EventID, limit int) 
 	CMxSetStatus(conn.connId, FlagFetching)
 	defer CMxClearStatus(conn.connId, FlagFetching)
 
+	var msgs []*OutMsg
+	events := 0
+	addEvents := func(chunk []*event.Event) {
+		events += len(chunk)
+		for _, evt := range chunk {
+			evt.RoomID = roomID
+			if err := evt.Content.ParseRaw(evt.Type); err != nil && !errors.Is(err, event.ErrContentAlreadyParsed) &&
+				!errors.Is(err, event.ErrUnsupportedContentType) {
+				continue
+			}
+
+			if evt.ID == fromMsgId {
+				continue
+			}
+
+			msg := conn.handleTimelineEvent(ctx, evt, modeBackfill)
+			if msg != nil {
+				msgs = append(msgs, msg)
+			}
+		}
+	}
+
 	token := ""
 	if fromMsgId != "" {
 		resp, err := client.Context(ctx, roomID, fromMsgId, nil, 0)
@@ -529,36 +657,29 @@ func (conn *MxConn) backfill(roomID id.RoomID, fromMsgId id.EventID, limit int) 
 			return
 		}
 
+		// the server returns some events before fromMsgId (its default context
+		// limit) and a start token before those, so they must be taken from here
+		addEvents(resp.EventsBefore)
 		token = resp.Start
 	}
 
-	resp, err := client.Messages(ctx, roomID, token, "", mautrix.DirectionBackward, nil, limit)
-	if err != nil {
-		LOG_WARNING(fmt.Sprintf("messages failed %s: %v", roomID, err))
-		CMxNewMessagesBatchDone(conn.connId, string(roomID), string(fromMsgId))
-		return
-	}
-
-	var msgs []*OutMsg
-	for _, evt := range resp.Chunk {
-		evt.RoomID = roomID
-		if err := evt.Content.ParseRaw(evt.Type); err != nil && !errors.Is(err, event.ErrContentAlreadyParsed) &&
-			!errors.Is(err, event.ErrUnsupportedContentType) {
-			continue
+	// a page of events may hold no messages at all (state changes, reactions,
+	// edits); an empty result means "start of the room" to the ui, so page on
+	// until there are messages or the server reports the start
+	const maxPages = 20
+	for page := 0; (page < maxPages) && (len(msgs) < limit/2); page++ {
+		resp, err := client.Messages(ctx, roomID, token, "", mautrix.DirectionBackward, nil, limit)
+		if err != nil {
+			LOG_WARNING(fmt.Sprintf("messages failed %s: %v", roomID, err))
+			break
 		}
 
-		if evt.StateKey != nil {
-			continue
+		addEvents(resp.Chunk)
+		if (resp.End == "") || (resp.End == token) || (len(resp.Chunk) == 0) {
+			break
 		}
 
-		if evt.ID == fromMsgId {
-			continue
-		}
-
-		msg := conn.handleTimelineEvent(ctx, evt, modeBackfill)
-		if msg != nil {
-			msgs = append(msgs, msg)
-		}
+		token = resp.End
 	}
 
 	for _, msg := range msgs {
@@ -567,7 +688,7 @@ func (conn *MxConn) backfill(roomID id.RoomID, fromMsgId id.EventID, limit int) 
 		}
 	}
 
-	LOG_DEBUG(fmt.Sprintf("backfill %s got %d events %d msgs", roomID, len(resp.Chunk), len(msgs)))
+	LOG_DEBUG(fmt.Sprintf("backfill %s got %d events %d msgs", roomID, events, len(msgs)))
 	conn.emitBatch(roomID, msgs, string(fromMsgId))
 	conn.flushReactions()
 	conn.saveState(false)

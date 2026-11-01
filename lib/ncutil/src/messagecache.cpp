@@ -263,6 +263,18 @@ void MessageCache::AddFromServiceMessage(const std::string& p_ProfileId,
   }
 }
 
+void MessageCache::RemoveProfile(const std::string& p_ProfileId)
+{
+  std::unique_lock<std::mutex> lock(m_DbMutex);
+  m_Dbs.erase(p_ProfileId);
+  m_CheckSequence.erase(p_ProfileId);
+  m_UpdatedSequence.erase(p_ProfileId);
+  if (!m_HistoryDir.empty() && !p_ProfileId.empty())
+  {
+    FileUtil::RmDir(m_HistoryDir + "/" + p_ProfileId);
+  }
+}
+
 void MessageCache::AddProfile(const std::string& p_ProfileId, bool p_CheckSequence, int p_DirVersion, bool p_IsSetup,
                               bool p_AllowReadOnly, bool* p_IsRemoved /*= nullptr*/)
 {
@@ -688,6 +700,7 @@ bool MessageCache::FetchMessagesFrom(const std::string& p_ProfileId, const std::
       std::make_shared<FetchMessagesFromRequest>();
     fetchFromRequest->profileId = p_ProfileId;
     fetchFromRequest->chatId = p_ChatId;
+    fetchFromRequest->fromMsgId = p_FromMsgId; // lets the requester match the reply
     fetchFromRequest->fromMsgIdTimeSent = fromMsgIdTimeSent;
     fetchFromRequest->limit = std::min(p_Limit, count);
 
@@ -780,6 +793,86 @@ bool MessageCache::GetOneMessage(const std::string& p_ProfileId, const std::stri
 
   PerformFetchOneMessage(p_ProfileId, p_ChatId, p_MsgId, p_ChatMessages);
   return !p_ChatMessages.empty();
+}
+
+static std::string ResetFailedDownloadFileInfo(const std::string& p_FileInfo);
+
+std::vector<std::pair<std::string, ChatMessage>> MessageCache::FetchMediaSync(const std::string& p_ProfileId,
+                                                                              const std::string& p_ChatId,
+                                                                              bool p_Links, int64_t p_BeforeTime,
+                                                                              int p_Limit)
+{
+  std::vector<std::pair<std::string, ChatMessage>> result;
+  if (!m_CacheEnabled) return result;
+
+  std::unique_lock<std::mutex> lock(m_DbMutex);
+  if (!m_Dbs[p_ProfileId]) return result;
+
+  const std::string filter = p_Links ? "(text LIKE '%://%' OR text LIKE '%www.%')" : "COALESCE(fileInfo, '') != ''";
+  try
+  {
+    // *INDENT-OFF*
+    *m_Dbs[p_ProfileId] <<
+      "SELECT chatId, id, senderId, text, fileInfo, timeSent, isOutgoing, isRead FROM " + s_TableMessages +
+      " WHERE COALESCE(isDeleted, 0) = 0 AND timeSent < ? AND (? = '' OR chatId = ?) AND " + filter +
+      " ORDER BY timeSent DESC LIMIT ?;" << p_BeforeTime << p_ChatId << p_ChatId << p_Limit >>
+      [&](const std::string& chatId, const std::string& id, const std::string& senderId, const std::string& text,
+          const std::string& fileInfo, int64_t timeSent, int32_t isOutgoing, int32_t isRead)
+      {
+        ChatMessage chatMessage;
+        chatMessage.id = id;
+        chatMessage.senderId = senderId;
+        chatMessage.text = text;
+        chatMessage.fileInfo = ResetFailedDownloadFileInfo(fileInfo);
+        chatMessage.timeSent = timeSent;
+        chatMessage.isOutgoing = isOutgoing;
+        chatMessage.isRead = isRead;
+        result.push_back(std::make_pair(chatId, chatMessage));
+      };
+    // *INDENT-ON*
+  }
+  catch (const sqlite::sqlite_exception& ex)
+  {
+    HANDLE_SQLITE_EXCEPTION(ex);
+  }
+
+  return result;
+}
+
+std::map<std::string, int> MessageCache::GetUnreadCountsSync(const std::string& p_ProfileId)
+{
+  std::map<std::string, int> counts;
+  if (!m_CacheEnabled) return counts;
+
+  std::unique_lock<std::mutex> lock(m_DbMutex);
+  if (!m_Dbs[p_ProfileId]) return counts;
+
+  try
+  {
+    // *INDENT-OFF*
+    *m_Dbs[p_ProfileId] <<
+      // received unread messages after the last own or read message (older
+      // unread ones were usually read on another device); two scans, no
+      // per-row subquery (that took minutes on large histories)
+      "WITH r AS (SELECT chatId, MAX(timeSent) AS t FROM " + s_TableMessages +
+      " WHERE isOutgoing = 1 OR isRead = 1 GROUP BY chatId) "
+      "SELECT m.chatId, COUNT(*) FROM " + s_TableMessages + " m LEFT JOIN r ON r.chatId = m.chatId"
+      " WHERE m.isRead = 0 AND m.isOutgoing = 0 AND COALESCE(m.isDeleted, 0) = 0 AND m.timeSent > COALESCE(r.t, 0)"
+      // group events ("[Joined]" without a file) are not messages to count
+      " AND NOT (m.text LIKE '[%]' AND COALESCE(m.fileInfo, '') = '')"
+      " GROUP BY m.chatId;" >>
+      [&](const std::string& chatId, int32_t count)
+      {
+        counts[chatId] = count;
+      };
+    // *INDENT-ON*
+  }
+  catch (const sqlite::sqlite_exception& ex)
+  {
+    HANDLE_SQLITE_EXCEPTION(ex);
+  }
+
+  return counts;
 }
 
 void MessageCache::FindMessage(const std::string& p_ProfileId, const std::string& p_ChatId,

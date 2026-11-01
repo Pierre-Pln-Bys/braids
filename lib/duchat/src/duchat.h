@@ -41,10 +41,15 @@ public:
   void SetMessageHandler(const std::function<void(std::shared_ptr<ServiceMessage>)>& p_MessageHandler);
 
 private:
+  // 1..4 for showcase accounts (phone number starting with +99, ending in
+  // the persona), else 0
+  int ShowcasePersona() const;
+
   void PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage);
 
 private:
   std::string m_ProfileId;
+  std::string m_ProfileDir;
   std::function<void(std::shared_ptr<ServiceMessage>)> m_MessageHandler;
 
   bool m_Running = false;

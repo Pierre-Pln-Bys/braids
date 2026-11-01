@@ -1,0 +1,91 @@
+// ui.svelte.ts
+//
+// Copyright (c) 2026 braids contributors
+//
+// braids is distributed under the GNU AGPL v3 license, see LICENSE for details.
+
+import type { Message } from './types';
+
+export interface MenuItem {
+  label: string;
+  icon?: any;
+  danger?: boolean;
+  disabled?: boolean;
+  hint?: string;
+  run: () => void;
+}
+
+export interface ConfirmRequest {
+  title: string;
+  body: string;
+  confirm: string;
+  danger?: boolean;
+  resolve: (ok: boolean) => void;
+}
+
+export interface LightboxItem {
+  path: string;
+  name: string;
+  video?: boolean; // played in the viewer instead of shown
+}
+
+class Ui {
+  width = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
+  infoOpen = $state(false);
+  settingsOpen = $state(false);
+  settingsSection = $state('general');
+  settingsAccount = $state('');
+  newChatOpen = $state(false);
+  joinLink = $state(''); // opens the New chat dialog on "Join a group" with this link
+  drawerOpen = $state(false); // sidebar as drawer (narrow layout)
+  chatSearchOpen = $state(false);
+  // image viewer: the images it can switch between and the one shown
+  lightbox = $state<{ items: LightboxItem[]; index: number } | null>(null);
+  confirmRequest = $state<ConfirmRequest | null>(null);
+  menu = $state<{ x: number; y: number; items: MenuItem[]; leftOf?: boolean } | null>(null); // leftOf: x is the right edge
+  reply = $state<Message | null>(null);
+  edit = $state<Message | null>(null);
+  forward = $state<Message | null>(null); // message being forwarded (dialog open)
+  media = $state<{ chatKey: string } | null>(null); // shared media dialog: of a chat, or all ('')
+  jumpRequest = $state<{ chatKey: string; msgId: string } | null>(null); // scroll the conversation to a message
+  highlightId = $state('');
+  dropHover = $state(false);
+  focusComposer = $state(0); // bump to focus
+  recordingKeys = $state(false); // a shortcut is being recorded in Settings
+  focusSearch = $state(0);
+
+  get narrow(): boolean {
+    return this.width < 900;
+  }
+
+  get wide(): boolean {
+    return this.width >= 1280;
+  }
+
+  confirm(title: string, body: string, confirm: string, danger = false): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.confirmRequest = { title, body, confirm, danger, resolve };
+    });
+  }
+
+  openMenu(e: MouseEvent | { x: number; y: number }, items: MenuItem[], leftOf = false) {
+    const x = 'clientX' in e ? e.clientX : e.x;
+    const y = 'clientY' in e ? e.clientY : e.y;
+    this.menu = { x, y, items, leftOf };
+  }
+
+  highlight(id: string) {
+    this.highlightId = id;
+    setTimeout(() => {
+      if (this.highlightId === id) this.highlightId = '';
+    }, 1600);
+  }
+}
+
+export const ui = new Ui();
+
+// Opens the image viewer on one of several images (paths of local files).
+export function openLightbox(items: LightboxItem[], path: string) {
+  const index = Math.max(0, items.findIndex((it) => it.path === path));
+  ui.lightbox = { items: items.length ? items : [{ path, name: path.split('/').pop() ?? '' }], index };
+}

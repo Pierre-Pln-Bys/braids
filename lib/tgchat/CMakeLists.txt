@@ -42,6 +42,37 @@ install(TARGETS tgchat DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Common
 target_common_config(tgchat)
 
+# Telegram API credentials of braids (https://my.telegram.org), given at
+# build time so they are not in the repository: -DTG_API_ID=... -DTG_API_HASH=...,
+# the environment variables of the same name, or a git-ignored .env file in
+# the repository root (TG_API_ID=..., TG_API_HASH=...). Without them nchat's
+# credentials are used (development builds only).
+set(TG_DOTENV "${CMAKE_SOURCE_DIR}/.env")
+if(EXISTS "${TG_DOTENV}")
+  # editing .env reconfigures the build
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${TG_DOTENV}")
+  file(STRINGS "${TG_DOTENV}" TG_DOTENV_LINES REGEX "^[ \t]*(export[ \t]+)?TG_API_(ID|HASH)[ \t]*=")
+  foreach(TG_DOTENV_LINE ${TG_DOTENV_LINES})
+    string(REGEX REPLACE "^[ \t]*(export[ \t]+)?(TG_API_[A-Z]+)[ \t]*=[ \t]*[\"']?([^\"' \t#]*).*$" "\\2" TG_KEY "${TG_DOTENV_LINE}")
+    string(REGEX REPLACE "^[ \t]*(export[ \t]+)?(TG_API_[A-Z]+)[ \t]*=[ \t]*[\"']?([^\"' \t#]*).*$" "\\3" TG_VALUE "${TG_DOTENV_LINE}")
+    if(NOT ${TG_KEY} AND NOT DEFINED ENV{${TG_KEY}})
+      set(${TG_KEY} "${TG_VALUE}")
+    endif()
+  endforeach()
+endif()
+if(NOT TG_API_ID AND DEFINED ENV{TG_API_ID})
+  set(TG_API_ID "$ENV{TG_API_ID}")
+endif()
+if(NOT TG_API_HASH AND DEFINED ENV{TG_API_HASH})
+  set(TG_API_HASH "$ENV{TG_API_HASH}")
+endif()
+if(TG_API_ID AND TG_API_HASH)
+  message(STATUS "Telegram API credentials: braids (from build configuration)")
+  target_compile_definitions(tgchat PRIVATE TG_API_ID="${TG_API_ID}" TG_API_HASH="${TG_API_HASH}")
+else()
+  message(STATUS "Telegram API credentials: nchat fallback (set TG_API_ID / TG_API_HASH for releases)")
+endif()
+
 # Headers
 target_include_directories(tgchat PRIVATE "../common/src")
 target_include_directories(tgchat PRIVATE "../ncutil/src")

@@ -1,7 +1,17 @@
 /build
 /build-dist
+/build-release
 /build-static
 /build-static-ext
 /dbgbuild
 /dist
 /.gotools
+__pycache__/
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+app/test-results/
+
+# local secrets (Telegram API credentials, see .env.example)
+/.env
