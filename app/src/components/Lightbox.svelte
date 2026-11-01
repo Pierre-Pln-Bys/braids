@@ -6,8 +6,8 @@
   braids is distributed under the GNU AGPL v3 license, see LICENSE for details.
 
   Image viewer: zoom (wheel towards the cursor, + / - / 0, double-click),
-  pan (drag; arrow keys or h j k l while zoomed), switch between the images
-  of the chat or list (← → or j k while not zoomed), Esc closes.
+  pan by dragging, switch between the images of the chat or list (← → or
+  j k, also while zoomed), Esc closes.
 -->
 <script lang="ts">
   import { ChevronLeft, ChevronRight, ExternalLink, X, ZoomIn, ZoomOut } from '@lucide/svelte';
@@ -17,7 +17,6 @@
 
   const MIN = 1;
   const MAX = 8;
-  const PAN_STEP = 80;
 
   const lb = $derived(ui.lightbox!);
   const item = $derived(lb.items[lb.index]);
@@ -101,17 +100,12 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const zoomed = scale > 1;
     const k = e.key;
     let handled = true;
     if (k === 'Escape') close();
     else if (k === '+' || k === '=') zoomTo(scale * 1.5);
     else if (k === '-' || k === '_') zoomTo(scale / 1.5);
     else if (k === '0') zoomTo(1);
-    else if (zoomed && (k === 'ArrowLeft' || k === 'h')) x += PAN_STEP;
-    else if (zoomed && (k === 'ArrowRight' || k === 'l')) x -= PAN_STEP;
-    else if (zoomed && (k === 'ArrowUp' || k === 'k')) y += PAN_STEP;
-    else if (zoomed && (k === 'ArrowDown' || k === 'j')) y -= PAN_STEP;
     else if (k === 'ArrowRight' || k === 'j' || k === 'l' || k === 'ArrowDown' || k === 'PageDown') go(1);
     else if (k === 'ArrowLeft' || k === 'k' || k === 'h' || k === 'ArrowUp' || k === 'PageUp') go(-1);
     else handled = false;
@@ -152,7 +146,7 @@
         <button class="nav next" aria-label="Next image" title="Next (→ or j)" onclick={() => go(1)} onpointerdown={(e) => e.stopPropagation()}><ChevronRight size={26} /></button>
       {/if}
     </div>
-    <div class="lb-hint">Scroll or + / − to zoom · drag or arrows to move · {count > 1 ? '← → or j k to switch · ' : ''}Esc to close</div>
+    <div class="lb-hint">Scroll or + / − to zoom · drag to move · {count > 1 ? '← → or j k to switch · ' : ''}Esc to close</div>
   </div>
 {/if}
 

@@ -323,8 +323,16 @@ try {
   check((await pos()) === first, 'j shows the next image');
   await page.keyboard.press('+');
   check((await page.locator('.lb-zoom').textContent()) === '150%', '+ zooms in');
-  await page.keyboard.press('ArrowLeft');
-  check((await pos()) === first && (await page.locator('.lightbox img').getAttribute('style')).includes('translate(80px'), 'arrows pan while zoomed');
+  await page.keyboard.press('k');
+  check((await pos()) !== first && (await page.locator('.lb-zoom').textContent()) === '100%', 'k switches while zoomed (new image fitted)');
+  await page.keyboard.press('j');
+  await page.keyboard.press('+');
+  const box = await page.locator('.lb-stage').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 30);
+  await page.mouse.up();
+  check((await page.locator('.lightbox img').getAttribute('style')).includes('translate(60px, 30px)'), 'drag moves the zoomed image');
   await page.locator('.lb-stage').hover();
   await page.mouse.wheel(0, -300);
   check(parseInt(await page.locator('.lb-zoom').textContent()) > 150, 'wheel zooms in');
