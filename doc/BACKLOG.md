@@ -10,10 +10,8 @@ Agreed features not scheduled in a milestone yet. Newest first.
   runs (it holds the sessions and keys), an authenticated WebSocket transport
   instead of the local socket, and TLS. A hosted service is not planned
   (it would hold everyone's message keys).
-- **Other platforms**: macOS (builds already, needs signing/notarization and
-  a .dmg), Windows (C++ core and Go libraries need porting; Tauri supports it),
-  Linux ARM64 and Flatpak/AppImage packages; mobile is out of scope (the
-  protocols' mobile apps are the primary devices).
+- **Other platforms**: Linux ARM64 and Flatpak/AppImage packages. macOS is
+  not planned (decided against); Windows and mobile are out of scope.
 
 - **Custom groups**: user-defined chat groups/folders beyond All, Favorites
   and Archived.

@@ -9,8 +9,8 @@ Install (Linux, x86_64; installs to your home folder, no root needed):
     curl -fsSL https://pebll.github.io/braids/install.sh | sh
 
 A .deb package and a self-contained archive are attached to every
-[release](https://github.com/pebll/braids/releases). macOS and Windows are
-not available yet.
+[release](https://github.com/pebll/braids/releases). braids is for Linux
+only.
 
 braids is based on [nchat](https://github.com/d99kris/nchat) by Kristofer
 Berggren, a terminal messenger. braids keeps nchat's protocol implementations
@@ -20,7 +20,7 @@ terminal UI with a GUI.
 Building
 --------
 
-Dependencies (Linux via apt/dnf/pacman..., macOS via Homebrew):
+Dependencies (via apt/dnf/pacman...):
 
     ./make.sh deps
 

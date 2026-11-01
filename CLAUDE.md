@@ -1,7 +1,7 @@
 # braids — notes for coding agents
 
 braids: open source desktop messenger (Telegram, WhatsApp, Signal, Matrix),
-Linux + macOS, Tauri GUI on top of a C++ core daemon. Forked from nchat
+Linux only (no macOS builds or CI), Tauri GUI on top of a C++ core daemon. Forked from nchat
 (terminal client). Read `doc/REQUIREMENTS.md` and `doc/ARCHITECTURE.md` first;
 they hold the agreed decisions and the milestone plan (M0 done, M1 core done
 pending real-account checks of Telegram/WhatsApp/Signal, M2 API done, M3 GUI v1

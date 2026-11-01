@@ -19,7 +19,6 @@ Prerequisites:
 - Linux (Debian/Ubuntu): `sudo apt install libwebkit2gtk-4.1-dev librsvg2-dev
   libayatana-appindicator3-dev libxdo-dev libgstreamer1.0-dev build-essential`
   (GStreamer records voice messages; WebKitGTK uses it for media anyway).
-  macOS: `xcode-select --install`.
 - A built braidsd: `./make.sh --no-telegram build` in the repository root
   (without `--no-telegram` for Telegram; tdlib takes about an hour).
 
