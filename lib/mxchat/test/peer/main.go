@@ -134,6 +134,12 @@ func main() {
 		if content.Mentions != nil && len(content.Mentions.UserIDs) > 0 {
 			m["mentions"] = content.Mentions.UserIDs
 		}
+		if content.MSC3245Voice != nil {
+			m["voice"] = true
+		}
+		if content.Info != nil && content.Info.Duration > 0 {
+			m["duration"] = content.Info.Duration
+		}
 		if content.URL != "" || content.File != nil {
 			m["file"] = true
 			m["file_encrypted"] = (content.File != nil)

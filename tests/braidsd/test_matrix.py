@@ -261,6 +261,16 @@ def main():
         check(fwd2["msgtype"] == "m.image" and fwd2.get("file_size", 0) > 0, "forwarded image with caption arrives")
         check("look at this" in (fwd2.get("body") or "") + (fwd2.get("html") or ""), "caption sent with the image")
 
+        # voice message: m.audio (with the voice marker) from an Ogg/Opus recording
+        voice_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib/mxchat/go/testdata/voice.ogg")
+        voice = os.path.join(confdir, "voice-message.ogg")
+        shutil.copy(voice_src, voice)
+        d.call("messages.send", {"accountId": account_id, "chatId": room, "filePath": voice, "isVoice": True})
+        vmsg = bob_peer.wait("message", lambda m: m["sender"] == alice_id and m.get("msgtype") == "m.audio", timeout=60)
+        print("voice message:", {k: vmsg.get(k) for k in ("msgtype", "body", "file_size", "voice", "duration")}, flush=True)
+        check(vmsg.get("file_size", 0) > 0, "voice message arrives as m.audio")
+        check(vmsg.get("voice") and 1300 <= vmsg.get("duration", 0) <= 1800, "voice marker and duration")
+
         # shared media of the room: the received image (and the forwarded ones)
         def room_media():
             items = d.call("media.list", {"accountId": account_id, "chatId": room, "kind": "media"})["items"]

@@ -463,6 +463,10 @@ void MxChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
           filePath = fileInfo.filePath;
           fileType = fileInfo.fileType;
+          if (sendMessageRequest->isVoice)
+          {
+            fileType = "voice:" + fileType; // braids: voice message, see MxSendMessage
+          }
         }
 
         std::string editMsgId;

@@ -54,7 +54,7 @@ public:
   void GetMessages(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_FromMsgId,
                    int p_Limit, const Reply& p_Reply);
   void SendMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
-                   const std::string& p_QuotedId, const std::string& p_FilePath);
+                   const std::string& p_QuotedId, const std::string& p_FilePath, bool p_IsVoice = false);
   void EditMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_MsgId,
                    const std::string& p_Text);
   void DeleteMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_MsgId);

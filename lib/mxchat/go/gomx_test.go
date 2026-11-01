@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -244,5 +245,22 @@ func TestStateRoundTrip(t *testing.T) {
 	if conn2.state.Rooms["!r:localhost"] == nil || conn2.state.Rooms["!r:localhost"].Name != "Room" ||
 		conn2.state.Names["@bob:localhost"] != "Bob" {
 		t.Errorf("state not restored: %+v", conn2.state)
+	}
+}
+
+// braids: voice messages carry their length (testdata/voice.ogg: a 1.5 s
+// recording from the app's recorder, app/src-tauri/src/voice.rs)
+func TestOggOpusDurationMs(t *testing.T) {
+	data, err := os.ReadFile("testdata/voice.ogg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ms := OggOpusDurationMs(data); ms < 1300 || ms > 1800 {
+		t.Fatalf("duration %d ms", ms)
+	}
+
+	if ms := OggOpusDurationMs([]byte("not an ogg file at all, just text that is long enough........")); ms != 0 {
+		t.Fatalf("non-ogg duration %d", ms)
 	}
 }

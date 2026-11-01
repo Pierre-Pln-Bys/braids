@@ -362,7 +362,7 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
   {
     m_ChatModel->SendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
                              ParamStrOpt(params, "text"), ParamStrOpt(params, "quotedId"),
-                             ParamStrOpt(params, "filePath"));
+                             ParamStrOpt(params, "filePath"), ParamBool(params, "isVoice", false));
     p_Reply.Ok(json::object());
   }
   else if (p_Method == "messages.edit")

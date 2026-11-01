@@ -210,3 +210,88 @@ export async function onFileDrop(handler: (paths: string[]) => void, onHover: (h
     if (files.length) handler(await Promise.all(files.map((f) => saveTempFile(f.name, f))));
   });
 }
+
+// ---- voice messages ----
+// The desktop app records Ogg/Opus with GStreamer (src-tauri/src/voice.rs);
+// in a browser (development, UI tests) the browser's recorder is used.
+
+export interface VoiceClip {
+  path: string;
+  durationMs: number;
+}
+
+let browserRec: { recorder: MediaRecorder; chunks: Blob[]; started: number; stopLevel: () => void } | null = null;
+const levelHandlers = new Set<(level: number) => void>();
+let tauriLevelListening = false;
+
+// input level (0..1) while recording; returns the unsubscribe function
+export function onVoiceLevel(handler: (level: number) => void): () => void {
+  levelHandlers.add(handler);
+  if (isTauri && !tauriLevelListening) {
+    tauriLevelListening = true;
+    import('@tauri-apps/api/event').then(({ listen }) => listen<number>('voice-level', (e) => levelHandlers.forEach((h) => h(e.payload))));
+  }
+  return () => levelHandlers.delete(handler);
+}
+
+export async function voiceStart(): Promise<void> {
+  if (isTauri) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    try {
+      await invoke('voice_start');
+    } catch (e) {
+      throw new Error(String(e));
+    }
+    return;
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const recorder = new MediaRecorder(stream);
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  // level from an analyser
+  const ctx = new AudioContext();
+  const analyser = ctx.createAnalyser();
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const data = new Float32Array(analyser.fftSize);
+  const timer = setInterval(() => {
+    analyser.getFloatTimeDomainData(data);
+    const rms = Math.sqrt(data.reduce((n, v) => n + v * v, 0) / data.length);
+    levelHandlers.forEach((h) => h(Math.min(1, rms * 4)));
+  }, 100);
+  recorder.start(250);
+  browserRec = {
+    recorder,
+    chunks,
+    started: Date.now(),
+    stopLevel: () => {
+      clearInterval(timer);
+      ctx.close();
+      stream.getTracks().forEach((t) => t.stop());
+    },
+  };
+}
+
+export async function voiceStop(cancel: boolean): Promise<VoiceClip | null> {
+  if (isTauri) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    try {
+      return await invoke<VoiceClip | null>('voice_stop', { cancel });
+    } catch (e) {
+      throw new Error(String(e));
+    }
+  }
+
+  const rec = browserRec;
+  browserRec = null;
+  if (!rec) return null;
+  const stopped = new Promise((r) => (rec.recorder.onstop = r));
+  rec.recorder.stop();
+  await stopped;
+  rec.stopLevel();
+  if (cancel) return null;
+  const type = rec.recorder.mimeType || 'audio/webm';
+  const ext = type.includes('ogg') ? 'ogg' : 'webm';
+  const path = await saveTempFile(`voice-message.${ext}`, new Blob(rec.chunks, { type }));
+  return { path, durationMs: Date.now() - rec.started };
+}

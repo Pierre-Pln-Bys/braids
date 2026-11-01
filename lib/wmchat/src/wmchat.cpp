@@ -410,6 +410,10 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
             ProtocolUtil::FileInfoFromHex(sendMessageRequest->chatMessage.fileInfo);
           filePath = fileInfo.filePath;
           fileType = fileInfo.fileType;
+          if (sendMessageRequest->isVoice)
+          {
+            fileType = "voice:" + fileType; // braids: voice note, see WmSendMessage
+          }
         }
 
         std::string mentionsJson = ProtocolUtil::MentionsToJson(sendMessageRequest->chatMessage.mentions);

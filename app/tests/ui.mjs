@@ -48,10 +48,11 @@ const server = await createServer({ root: appDir, configFile: path.join(appDir, 
 await server.listen();
 const url = server.resolvedUrls.local[0];
 
-const browser = await chromium.launch();
+// a fake microphone for voice messages
+const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const errors = [];
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('Notification') && errors.push(m.text()));
   const shot = async (name) => shots && (await page.screenshot({ path: path.join(shots, `${name}.png`) }));
@@ -262,6 +263,25 @@ try {
   check((await voice.getByRole('button', { name: 'Playback speed' }).textContent()) === '1.5×', 'playback speed');
   await voice.getByRole('button', { name: 'Play', exact: true }).waitFor({ timeout: 5000 });
   check(true, 'voice message ends');
+
+  // recording a voice message: mic when the box is empty, cancel and send
+  await composer.fill('');
+  await page.getByRole('button', { name: 'Record voice message' }).click();
+  await page.locator('.recording .rec-time').waitFor();
+  check(true, 'recording bar shown');
+  await page.keyboard.press('Escape');
+  await page.locator('.recording').waitFor({ state: 'detached' });
+  check(true, 'Esc cancels the recording');
+  const voicesBefore = await page.locator('.msg.own .voice').count();
+  await page.getByRole('button', { name: 'Record voice message' }).click();
+  await page.locator('.recording').waitFor();
+  await page.waitForTimeout(1300);
+  await page.getByRole('button', { name: 'Send voice message' }).click();
+  await page.waitForFunction((n) => document.querySelectorAll('.msg.own .voice').length > n, voicesBefore, { timeout: 15000 });
+  check(true, 'recorded voice message sent and shown with the player');
+  await composer.fill('x');
+  check(await page.getByRole('button', { name: 'Record voice message' }).count() === 0, 'mic replaced by send while typing');
+  await composer.fill('');
 
   // shared media: across all chats, images and links, "Show in chat"
   await composer.fill('docs at https://example.org/braids');

@@ -8,6 +8,7 @@
 //! the platform bits the UI cannot do itself (tray, badge, temp files).
 
 mod daemon;
+mod voice;
 
 use std::fs;
 use std::io::Write;
@@ -93,6 +94,37 @@ fn save_temp_file(state: State<'_, AppState>, name: String, data: Vec<u8>) -> Re
     let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).map_err(|e| e.to_string())?;
     file.write_all(&data).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Starts recording a voice message from the default microphone; the input
+/// level arrives as `voice-level` events.
+#[tauri::command]
+fn voice_start(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    use tauri::Emitter;
+    let base = std::env::temp_dir().join(format!("braids-{}", std::process::id()));
+    let n = state.temp_counter.fetch_add(1, Ordering::SeqCst);
+    let dir = base.join(n.to_string());
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| e.to_string())?;
+    voice::start("autoaudiosrc", dir.join("voice-message.ogg"), move |level| {
+        let _ = app.emit("voice-level", level);
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceClip {
+    path: String,
+    duration_ms: u64,
+}
+
+/// Stops the recording: the Ogg/Opus file and its length, or null when
+/// cancelled (the file is deleted).
+#[tauri::command]
+async fn voice_stop(cancel: bool) -> Result<Option<VoiceClip>, String> {
+    tauri::async_runtime::spawn_blocking(move || voice::stop(cancel))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|clip| clip.map(|(path, duration_ms)| VoiceClip { path: path.to_string_lossy().into_owned(), duration_ms }))
 }
 
 /// Saves a copy of a received file where the user picks in the system save
@@ -197,7 +229,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![api_call, daemon_connected, set_close_to_tray, set_badge, save_temp_file, save_file_as, licenses_path])
+        .invoke_handler(tauri::generate_handler![api_call, daemon_connected, set_close_to_tray, set_badge, save_temp_file, save_file_as, licenses_path, voice_start, voice_stop])
         .run(tauri::generate_context!())
         .expect("error while running braids");
 }

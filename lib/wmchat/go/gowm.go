@@ -9,7 +9,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
@@ -2962,7 +2964,12 @@ func WmGetMessages(connId int, chatId string, limit int, fromMsgId string, owner
 
 func WmSendMessage(connId int, chatId string, text string, quotedId string, quotedText string, quotedSender string, filePath string, fileType string, editMsgId string, editMsgSent int, mentionsJson string) int {
 
-	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + text + ", " + quotedId + ", " + filePath + ", " + editMsgId)
+	// braids: no message text in the log
+	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + quotedId + ", " + filePath + ", " + editMsgId)
+
+	// braids: "voice:<mime>" sends an audio file as a voice note (PTT)
+	isVoice := strings.HasPrefix(fileType, "voice:")
+	fileType = strings.TrimPrefix(fileType, "voice:")
 
 	// sanity check arg
 	if connId == -1 {
@@ -3129,7 +3136,7 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 			message.VideoMessage = &videoMessage
 			isSend = true
 
-		} else if (sendType >= AttachmentSendAsType) && (mimeType == "audio") {
+		} else if ((sendType >= AttachmentSendAsType) || isVoice) && (mimeType == "audio") {
 
 			LOG_TRACE("send audio " + fileType)
 			data, err := os.ReadFile(filePath)
@@ -3148,6 +3155,9 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 			if fileType == "audio/ogg" {
 				audioMime = "audio/ogg; codecs=opus"
 			}
+			if isVoice {
+				audioMime = "audio/ogg; codecs=opus"
+			}
 
 			audioMessage := waE2E.AudioMessage{
 				URL:           proto.String(uploaded.URL),
@@ -3158,6 +3168,12 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 				FileSHA256:    uploaded.FileSHA256,
 				FileLength:    proto.Uint64(uint64(len(data))),
 				ContextInfo:   &contextInfo,
+			}
+			if isVoice {
+				audioMessage.PTT = proto.Bool(true)
+				if ms := OggOpusDurationMs(data); ms > 0 {
+					audioMessage.Seconds = proto.Uint32(uint32((ms + 500) / 1000))
+				}
 			}
 
 			message.AudioMessage = &audioMessage
@@ -3804,4 +3820,30 @@ func WmSendReaction(connId int, chatId string, senderId string, msgId string, em
 	}
 
 	return 0
+}
+
+// braids: OggOpusDurationMs returns the length of an Ogg/Opus file (voice
+// notes): the last page's granule position (48 kHz samples) minus the
+// pre-skip from the OpusHead header; 0 if it is not one.
+func OggOpusDurationMs(data []byte) int64 {
+	if len(data) < 64 || string(data[:4]) != "OggS" {
+		return 0
+	}
+
+	preSkip := int64(0)
+	if i := bytes.Index(data, []byte("OpusHead")); i >= 0 && i+12 <= len(data) {
+		preSkip = int64(binary.LittleEndian.Uint16(data[i+10 : i+12]))
+	}
+
+	last := bytes.LastIndex(data, []byte("OggS"))
+	if last < 0 || last+14 > len(data) {
+		return 0
+	}
+
+	granule := int64(binary.LittleEndian.Uint64(data[last+6 : last+14]))
+	if granule <= preSkip {
+		return 0
+	}
+
+	return (granule - preSkip) * 1000 / 48000
 }

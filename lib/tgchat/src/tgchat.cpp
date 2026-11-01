@@ -9,6 +9,8 @@
 
 #include <cstdint>
 #include <chrono>
+#include <cstring>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -54,6 +56,40 @@
 // #define SIMULATED_SPONSORED_MESSAGES
 
 static const int s_TdlibDate = 20261009;
+
+// braids: length of an Ogg/Opus voice message in seconds: the last page's
+// granule position (48 kHz samples) minus the OpusHead pre-skip; 0 if unknown
+static int32_t OggOpusDurationSec(const std::string& p_Path)
+{
+  std::ifstream file(p_Path, std::ios::binary);
+  const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  if ((data.size() < 64) || (data.compare(0, 4, "OggS") != 0)) return 0;
+
+  auto le = [&data](size_t p_Pos, int p_Bytes)
+  {
+    uint64_t value = 0;
+    for (int i = p_Bytes - 1; i >= 0; --i)
+    {
+      value = (value << 8) | static_cast<uint8_t>(data[p_Pos + i]);
+    }
+    return value;
+  };
+
+  uint64_t preSkip = 0;
+  const size_t head = data.find("OpusHead");
+  if ((head != std::string::npos) && (head + 12 <= data.size()))
+  {
+    preSkip = le(head + 10, 2);
+  }
+
+  const size_t last = data.rfind("OggS");
+  if ((last == std::string::npos) || (last + 14 > data.size())) return 0;
+
+  const uint64_t granule = le(last + 6, 8);
+  if (granule <= preSkip) return 0;
+
+  return static_cast<int32_t>((granule - preSkip + 24000) / 48000);
+}
 
 namespace detail
 {
@@ -1000,7 +1036,18 @@ void TgChat::Impl::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessa
           bool hasQuote = !sendMessageRequest->chatMessage.quotedId.empty();
           bool isSendAsSpecial = (attachmentSendType >= AttachmentSendAsSticker) && !hasText && !hasQuote;
 
-          if (isSendAsSpecial && (mimeSubType == "webp"))
+          if (sendMessageRequest->isVoice)
+          {
+            // braids: a recorded voice message (Ogg/Opus)
+            auto message_content = td::td_api::make_object<td::td_api::inputMessageVoiceNote>();
+            message_content->voice_note_ = td::td_api::make_object<td::td_api::inputVoiceNote>();
+            message_content->voice_note_->voice_note_ =
+              td::td_api::make_object<td::td_api::inputFileLocal>(fileInfo.filePath);
+            message_content->voice_note_->duration_ = OggOpusDurationSec(fileInfo.filePath);
+            message_content->caption_ = std::move(formatted_text);
+            send_message->input_message_content_ = std::move(message_content);
+          }
+          else if (isSendAsSpecial && (mimeSubType == "webp"))
           {
             auto message_content = td::td_api::make_object<td::td_api::inputMessageSticker>();
             message_content->sticker_ = td::td_api::make_object<td::td_api::inputSticker>();

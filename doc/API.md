@@ -127,7 +127,7 @@ Methods
 | `media.list` | `kind` (`media`: images and videos, `files`, `links`), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`? (ms, from `nextBefore`), `limit`? (60, max 200) | `{items: [Message] newest first, nextBefore}` (`nextBefore` 0: no more); from the history cache and the loaded messages, `files.download` works for these too |
 | `members.get` | `accountId`, `chatId` | `{accountId, chatId, members: [Contact]}` (async) |
 | `messages.get` | `accountId`, `chatId`, `fromMsgId`? (latest), `limit`? (30) | `{accountId, chatId, fromMsgId, messages: [Message] oldest first, timedOut}` (async, from cache or server) |
-| `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute) | `{}`; the message arrives as `message.added` |
+| `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute), `isVoice`? (false; the file, Ogg/Opus, is sent as a voice note: WhatsApp PTT, Telegram voice note, Signal voice message, Matrix MSC3245 voice) | `{}`; the message arrives as `message.added` |
 | `messages.edit` | `accountId`, `chatId`, `msgId`, `text` | `{}` (error 4 outside the edit window) |
 | `messages.delete` | `accountId`, `chatId`, `msgId` | `{}`, then `message.removed` |
 | `messages.pin` | `accountId`, `chatId`, `msgId`, `isPinned`? (true) | `{}`, then `message.updated` (error 4 if unsupported, see `capabilities.pinMessage`) |

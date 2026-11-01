@@ -92,7 +92,7 @@ say "braids $(cat "${DEST}/share/braids-version" 2>/dev/null || true) installed 
 
 # system libraries the app needs (the rest ships with braids)
 MISSING=""
-for lib in libwebkit2gtk-4.1.so.0 libgtk-3.so.0 libsqlite3.so.0 libmagic.so.1; do
+for lib in libwebkit2gtk-4.1.so.0 libgtk-3.so.0 libsqlite3.so.0 libmagic.so.1 libgstreamer-1.0.so.0; do
   ldconfig -p 2>/dev/null | grep -q "${lib}" || MISSING="${MISSING} ${lib}"
 done
 if ! ldconfig -p 2>/dev/null | grep -q -e libayatana-appindicator3.so.1 -e libappindicator3.so.1; then
@@ -102,9 +102,9 @@ if [ -n "${MISSING}" ]; then
   say ""
   say "Missing system libraries:${MISSING}"
   say "Install them with your package manager, e.g.:"
-  say "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libsqlite3-0 libmagic1"
-  say "  Fedora:        sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3 sqlite-libs file-libs"
-  say "  Arch:          sudo pacman -S webkit2gtk-4.1 libayatana-appindicator sqlite file"
+  say "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libsqlite3-0 libmagic1 gstreamer1.0-plugins-good"
+  say "  Fedora:        sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3 sqlite-libs file-libs gstreamer1-plugins-good"
+  say "  Arch:          sudo pacman -S webkit2gtk-4.1 libayatana-appindicator sqlite file gst-plugins-good"
 fi
 
 case ":${PATH}:" in

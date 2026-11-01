@@ -99,7 +99,7 @@ Package: braids
 Version: ${VERSION}
 Architecture: amd64
 Maintainer: braids contributors <noreply@braids.invalid>
-Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1, libssl3 | libssl1.1, libsqlite3-0, libmagic1, zlib1g
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1, libssl3 | libssl1.1, libsqlite3-0, libmagic1, zlib1g, libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
 Section: net
 Priority: optional
 Homepage: https://github.com/pebll/braids

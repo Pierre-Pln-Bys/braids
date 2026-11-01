@@ -44,7 +44,7 @@ jobs:
     - name: System dependencies
       run: |
         ./make.sh deps -y
-        sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev
+        sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libgstreamer1.0-dev
     - name: Version matches the tag
       if: startsWith(github.ref, 'refs/tags/v')
       run: |

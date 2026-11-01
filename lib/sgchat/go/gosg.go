@@ -2482,7 +2482,12 @@ func SgGetMessages(connId int, chatId string, limit int, fromMsgId string, owner
 }
 
 func SgSendMessage(connId int, chatId string, text string, quotedId string, quotedText string, quotedSender string, filePath string, fileType string, editMsgId string, editMsgSent int, mentionsJson string) int {
-	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + text + ", " + quotedId + ", " + filePath + ", " + fileType + ", " + editMsgId)
+	// braids: no message text in the log
+	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + quotedId + ", " + filePath + ", " + fileType + ", " + editMsgId)
+
+	// braids: "voice:<mime>" sends an audio file as a voice message
+	isVoice := strings.HasPrefix(fileType, "voice:")
+	fileType = strings.TrimPrefix(fileType, "voice:")
 
 	// sanity check arg
 	if connId == -1 {
@@ -2617,7 +2622,12 @@ func SgSendMessage(connId int, chatId string, text string, quotedId string, quot
 					}
 					LOG_TRACE(fmt.Sprintf("attachment sendType=%d mimeSubType=%s isSendAsSpecial=%t", sendType, mimeSubType, isSendAsSpecial))
 
-					if isSendAsSpecial && (mimeSubType == "webp") {
+					if isVoice {
+						LOG_TRACE("send voice message")
+						attachment.ContentType = proto.String("audio/ogg")
+						attachment.Flags = proto.Uint32(uint32(signalpb.AttachmentPointer_VOICE_MESSAGE))
+						dataMsg.Attachments = []*signalpb.AttachmentPointer{attachment}
+					} else if isSendAsSpecial && (mimeSubType == "webp") {
 						LOG_TRACE("send sticker " + fileType)
 						attachment.Flags = proto.Uint32(uint32(signalpb.AttachmentPointer_BORDERLESS))
 						dataMsg.Sticker = &signalpb.DataMessage_Sticker{

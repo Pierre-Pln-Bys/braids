@@ -9,8 +9,8 @@
   emoji, Enter to send. Drafts are kept per chat.
 -->
 <script lang="ts">
-  import { File as FileIcon, Paperclip, Pencil, Play, Reply, SendHorizontal, Smile, X } from '@lucide/svelte';
-  import { tick } from 'svelte';
+  import { File as FileIcon, LoaderCircle, Mic, Paperclip, Pencil, Play, Reply, SendHorizontal, Smile, Trash2, X } from '@lucide/svelte';
+  import { onDestroy, tick } from 'svelte';
   import * as api from '../lib/api';
   import { editLastOwnMessage } from '../lib/actions';
   import { senderColor } from '../lib/format';
@@ -144,6 +144,74 @@
         sendTyping(false);
       }
     }, 5000);
+  }
+
+  // ---- voice messages ----
+  let recording = $state(false);
+  let recStarting = $state(false);
+  let recStart = 0;
+  let recElapsed = $state(0);
+  let recTimer: ReturnType<typeof setInterval> | undefined;
+  let levels = $state<number[]>(Array(28).fill(0));
+  let stopLevels: (() => void) | undefined;
+  const recTime = $derived(`${Math.floor(recElapsed / 60)}:${String(recElapsed % 60).padStart(2, '0')}`);
+
+  async function startRecording() {
+    if (recording || recStarting) return;
+    recStarting = true;
+    try {
+      levels = Array(28).fill(0);
+      stopLevels = api.onVoiceLevel((v) => (levels = [...levels.slice(1), v]));
+      await api.voiceStart();
+      recording = true;
+      recStart = Date.now();
+      recElapsed = 0;
+      recTimer = setInterval(() => (recElapsed = Math.floor((Date.now() - recStart) / 1000)), 250);
+    } catch (e) {
+      stopLevels?.();
+      store.toastError(e);
+    } finally {
+      recStarting = false;
+    }
+  }
+
+  async function stopRecording(send: boolean) {
+    if (!recording) return;
+    recording = false;
+    clearInterval(recTimer);
+    stopLevels?.();
+    try {
+      const clip = await api.voiceStop(!send);
+      // a tap on the mic is not a message
+      if (send && clip && clip.durationMs >= 700) {
+        const quotedId = ui.reply?.id;
+        await api.call('messages.send', { accountId, chatId, filePath: clip.path, isVoice: true, ...(quotedId ? { quotedId } : {}) });
+        ui.reply = null;
+      } else if (send && clip) {
+        store.toast('Hold on a bit longer: the recording was too short.');
+      }
+    } catch (e) {
+      store.toastError(e);
+    } finally {
+      textarea?.focus();
+    }
+  }
+
+  // leaving the chat cancels a recording
+  onDestroy(() => {
+    if (recording) stopRecording(false);
+  });
+
+  function onRecordKey(e: KeyboardEvent) {
+    if (!recording) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      stopRecording(false);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      stopRecording(true);
+    }
   }
 
   async function submit() {
@@ -309,6 +377,21 @@
     </div>
   {/if}
 
+  {#if recording}
+    <div class="row recording" role="group" aria-label="Recording a voice message">
+      <button class="icon-btn lg" aria-label="Cancel recording" title="Cancel (Esc)" onclick={() => stopRecording(false)}><Trash2 size={20} strokeWidth={1.75} /></button>
+      <div class="rec-box">
+        <span class="rec-dot"></span>
+        <span class="rec-time">{recTime}</span>
+        <span class="rec-levels" aria-hidden="true">
+          {#each levels as v}<span style:height={`${Math.max(8, Math.round(v * 100))}%`}></span>{/each}
+        </span>
+      </div>
+      <button class="send" aria-label="Send voice message" title="Send (Enter)" onclick={() => stopRecording(true)}>
+        <SendHorizontal size={19} strokeWidth={1.9} />
+      </button>
+    </div>
+  {:else}
   <div class="row">
     <button class="icon-btn lg" aria-label="Attach file" title="Attach file" onclick={pick} disabled={!!ui.edit}><Paperclip size={20} strokeWidth={1.75} /></button>
     <div class="box">
@@ -343,12 +426,21 @@
         </div>
       {/if}
     </div>
-    <button class="send" aria-label={ui.edit ? 'Save edit' : 'Send'} title={ui.edit ? 'Save (Enter)' : 'Send (Enter)'} onclick={submit}
-      disabled={sending || (!text.trim() && !attachments.length)}>
-      <SendHorizontal size={19} strokeWidth={1.9} />
-    </button>
+    {#if !text.trim() && !attachments.length && !ui.edit}
+      <button class="send mic" aria-label="Record voice message" title="Record a voice message" onclick={startRecording} disabled={recStarting}>
+        {#if recStarting}<LoaderCircle size={19} class="spin" />{:else}<Mic size={19} strokeWidth={1.9} />{/if}
+      </button>
+    {:else}
+      <button class="send" aria-label={ui.edit ? 'Save edit' : 'Send'} title={ui.edit ? 'Save (Enter)' : 'Send (Enter)'} onclick={submit}
+        disabled={sending || (!text.trim() && !attachments.length)}>
+        <SendHorizontal size={19} strokeWidth={1.9} />
+      </button>
+    {/if}
   </div>
+  {/if}
 </div>
+
+<svelte:window onkeydown={onRecordKey} />
 
 <style>
   .composer { border-top: 1px solid var(--border); background: var(--bg-2); flex-shrink: 0; }
@@ -357,6 +449,15 @@
   .ctx-body { flex: 1; min-width: 0; border-left: 3px solid var(--c); padding-left: 8px; }
   .ctx-title { font-size: 12px; font-weight: 650; color: var(--c); }
   .ctx-text { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rec-box {
+    flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+  }
+  @keyframes blink { 0%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+  .rec-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--danger); animation: blink 1.2s infinite; flex-shrink: 0; }
+  .rec-time { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text); min-width: 34px; }
+  .rec-levels { flex: 1; height: 22px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; overflow: hidden; }
+  .rec-levels span { width: 3px; flex-shrink: 0; border-radius: 2px; background: var(--accent); transition: height 90ms linear; }
   .attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px 0 56px; }
   .thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: var(--skeleton); border: 1px solid var(--border); flex-shrink: 0; }
   .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }

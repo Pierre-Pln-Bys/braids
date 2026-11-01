@@ -354,6 +354,7 @@ public:
   virtual MessageType GetMessageType() const { return SendMessageRequestType; }
   std::string chatId;
   ChatMessage chatMessage;
+  bool isVoice = false; // braids: send the (Ogg/Opus) audio file as a voice note
 };
 
 class EditMessageRequest : public RequestMessage

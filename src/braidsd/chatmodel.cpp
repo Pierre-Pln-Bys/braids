@@ -1571,7 +1571,7 @@ void ChatModel::GetMessages(const std::string& p_AccountId, const std::string& p
 }
 
 void ChatModel::SendMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
-                            const std::string& p_QuotedId, const std::string& p_FilePath)
+                            const std::string& p_QuotedId, const std::string& p_FilePath, bool p_IsVoice)
 {
   GetAccountOrThrow(p_AccountId);
   if (p_Text.empty() && p_FilePath.empty())
@@ -1602,7 +1602,18 @@ void ChatModel::SendMessage(const std::string& p_AccountId, const std::string& p
     FileInfo fileInfo;
     fileInfo.filePath = p_FilePath;
     fileInfo.fileType = FileUtil::GetMimeType(p_FilePath);
+    // a voice message is audio, also in a container sniffed as video (webm)
+    if (p_IsVoice && StrUtil::StartsWith(fileInfo.fileType, "video/"))
+    {
+      fileInfo.fileType = "audio/" + fileInfo.fileType.substr(6);
+    }
+
     sendMessageRequest->chatMessage.fileInfo = ProtocolUtil::FileInfoToHex(fileInfo);
+    sendMessageRequest->isVoice = p_IsVoice;
+  }
+  else if (p_IsVoice)
+  {
+    throw ApiException(ApiErrorInvalidParams, "isVoice needs a filePath");
   }
 
   SendProtocolRequest(p_AccountId, sendMessageRequest);
