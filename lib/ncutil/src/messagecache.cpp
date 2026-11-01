@@ -852,11 +852,13 @@ std::map<std::string, int> MessageCache::GetUnreadCountsSync(const std::string& 
     // *INDENT-OFF*
     *m_Dbs[p_ProfileId] <<
       // received unread messages after the last own or read message (older
-      // unread ones were usually read on another device)
-      "SELECT m.chatId, COUNT(*) FROM " + s_TableMessages + " m"
-      " WHERE m.isRead = 0 AND m.isOutgoing = 0 AND COALESCE(m.isDeleted, 0) = 0 AND m.timeSent > "
-      "COALESCE((SELECT MAX(r.timeSent) FROM " + s_TableMessages + " r WHERE r.chatId = m.chatId AND "
-      "(r.isOutgoing = 1 OR r.isRead = 1)), 0) GROUP BY m.chatId;" >>
+      // unread ones were usually read on another device); two scans, no
+      // per-row subquery (that took minutes on large histories)
+      "WITH r AS (SELECT chatId, MAX(timeSent) AS t FROM " + s_TableMessages +
+      " WHERE isOutgoing = 1 OR isRead = 1 GROUP BY chatId) "
+      "SELECT m.chatId, COUNT(*) FROM " + s_TableMessages + " m LEFT JOIN r ON r.chatId = m.chatId"
+      " WHERE m.isRead = 0 AND m.isOutgoing = 0 AND COALESCE(m.isDeleted, 0) = 0 AND m.timeSent > COALESCE(r.t, 0)"
+      " GROUP BY m.chatId;" >>
       [&](const std::string& chatId, int32_t count)
       {
         counts[chatId] = count;

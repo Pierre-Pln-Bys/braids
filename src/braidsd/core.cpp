@@ -121,6 +121,14 @@ bool Core::Init(std::string& p_Error)
   }));
 
   m_ChatModel->SetProfilesDir(m_ProfilesDir);
+  m_ChatModel->SetBackgroundRunner([this](std::function<void()> p_Work, std::function<void()> p_Done)
+  {
+    RunBackground([this, p_Work, p_Done]()
+    {
+      p_Work();
+      m_Loop.Post(p_Done);
+    });
+  });
 
   MessageCache::SetMessageHandler([this](std::shared_ptr<ServiceMessage> p_ServiceMessage)
   {

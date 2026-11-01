@@ -35,6 +35,10 @@ public:
 
   // where per-account braids state (mute settings) is kept: <dir>/<accountId>/
   void SetProfilesDir(const std::string& p_ProfilesDir);
+  // runs p_Work on a background thread, then p_Done on the event loop (for
+  // slow cache queries that must not block the API)
+  using BackgroundRunner = std::function<void(std::function<void()> p_Work, std::function<void()> p_Done)>;
+  void SetBackgroundRunner(const BackgroundRunner& p_Runner);
 
   // Protocol notifications (also from MessageCache)
   void OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessage);
@@ -192,4 +196,5 @@ private:
   std::map<std::pair<std::string, std::string>, std::string> m_EmittedChats; // last chat.updated per chat
   std::pair<std::string, std::string> m_CurrentChat;
   std::string m_ProfilesDir;
+  BackgroundRunner m_BackgroundRunner;
 };

@@ -173,6 +173,11 @@ void ChatModel::SetProfilesDir(const std::string& p_ProfilesDir)
   m_ProfilesDir = p_ProfilesDir;
 }
 
+void ChatModel::SetBackgroundRunner(const BackgroundRunner& p_Runner)
+{
+  m_BackgroundRunner = p_Runner;
+}
+
 void ChatModel::AddAccount(const std::string& p_AccountId)
 {
   const bool isNew = !m_Accounts.count(p_AccountId);
@@ -503,13 +508,37 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
         account.connectTime = TimeUtil::GetCurrentTimeMSec();
         if (connectNotify->success)
         {
-          account.cachedUnread = MessageCache::GetUnreadCountsSync(accountId);
-          for (const auto& unread : account.cachedUnread)
+          // counted in the background: a large history must not hold up the API
+          auto counts = std::make_shared<std::map<std::string, int>>();
+          auto work = [accountId, counts]()
           {
-            if (account.chatInfos.count(unread.first))
+            *counts = MessageCache::GetUnreadCountsSync(accountId);
+          };
+          auto done = [this, accountId, counts]()
+          {
+            auto ait = m_Accounts.find(accountId);
+            if (ait == m_Accounts.end()) return; // removed meanwhile
+
+            ait->second.cachedUnread = *counts;
+            for (const auto& unread : *counts)
             {
-              MarkChatDirty(accountId, unread.first);
+              if (ait->second.chatInfos.count(unread.first))
+              {
+                MarkChatDirty(accountId, unread.first);
+              }
             }
+
+            FlushDirtyChats();
+          };
+
+          if (m_BackgroundRunner)
+          {
+            m_BackgroundRunner(work, done);
+          }
+          else
+          {
+            work();
+            done();
           }
         }
 
