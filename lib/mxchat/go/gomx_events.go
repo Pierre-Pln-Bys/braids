@@ -247,6 +247,26 @@ func (conn *MxConn) stateMessage(ctx context.Context, evt *event.Event) *OutMsg 
 	}
 }
 
+// extensionByType returns the usual file extension of a mime type; the mime
+// library lists them alphabetically (.f4v first for video/mp4, .jfif for
+// image/jpeg), so common ones are preferred.
+func extensionByType(mimeType string) string {
+	exts, err := mime.ExtensionsByType(mimeType)
+	if err != nil || len(exts) == 0 {
+		return ""
+	}
+
+	for _, preferred := range []string{".jpg", ".jpeg", ".png", ".mp4", ".mov", ".ogg", ".mp3", ".m4a", ".aac", ".webp", ".pdf"} {
+		for _, ext := range exts {
+			if ext == preferred {
+				return ext
+			}
+		}
+	}
+
+	return exts[0]
+}
+
 func (conn *MxConn) utdMessage(evt *event.Event) *OutMsg {
 	conn.mu.Lock()
 	conn.utdShown[evt.ID] = true
@@ -321,9 +341,7 @@ func (conn *MxConn) fileInfoFor(evt *event.Event, content *event.MessageEventCon
 
 	ext := filepath.Ext(name)
 	if ext == "" && mimeType != "" {
-		if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
-			ext = exts[0]
-		}
+		ext = extensionByType(mimeType)
 	}
 
 	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))

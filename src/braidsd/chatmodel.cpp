@@ -37,9 +37,9 @@ static bool IsSameMessage(const ChatMessage& p_Lhs, const ChatMessage& p_Rhs)
 static std::string GuessMimeType(const FileInfo& p_FileInfo)
 {
   static const std::map<std::string, std::string> s_Types = {
-    { "jpg", "image/jpeg" }, { "jpeg", "image/jpeg" }, { "png", "image/png" }, { "gif", "image/gif" },
+    { "jpg", "image/jpeg" }, { "jpeg", "image/jpeg" }, { "jfif", "image/jpeg" }, { "jpe", "image/jpeg" }, { "png", "image/png" }, { "gif", "image/gif" },
     { "webp", "image/webp" }, { "bmp", "image/bmp" }, { "heic", "image/heic" }, { "svg", "image/svg+xml" },
-    { "mp4", "video/mp4" }, { "mov", "video/quicktime" }, { "webm", "video/webm" }, { "mkv", "video/x-matroska" },
+    { "mp4", "video/mp4" }, { "f4v", "video/mp4" }, { "m4v", "video/mp4" }, { "mov", "video/quicktime" }, { "webm", "video/webm" }, { "mkv", "video/x-matroska" },
     { "3gp", "video/3gpp" }, { "ogg", "audio/ogg" }, { "oga", "audio/ogg" }, { "opus", "audio/opus" },
     { "mp3", "audio/mpeg" }, { "m4a", "audio/mp4" }, { "wav", "audio/wav" }, { "pdf", "application/pdf" },
   };

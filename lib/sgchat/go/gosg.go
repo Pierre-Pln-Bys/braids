@@ -986,8 +986,9 @@ func ExtensionByType(mimeType string, defaultExt string) string {
 	ext := defaultExt
 	exts, extErr := mime.ExtensionsByType(mimeType)
 	if extErr == nil && len(exts) > 0 {
-		// prefer common extensions over less common (.jpe, etc) returned by mime library
-		preferredExts := []string{".jpg", ".jpeg"}
+		// prefer common extensions over less common ones returned by the mime
+		// library in alphabetical order (.jpe, .f4v for video/mp4, .oga, etc)
+		preferredExts := []string{".jpg", ".jpeg", ".png", ".mp4", ".mov", ".ogg", ".mp3", ".m4a", ".aac", ".webp", ".pdf"}
 		sort.Slice(exts, func(i, j int) bool {
 			return SliceIndex(preferredExts, exts[i], 1000000) < SliceIndex(preferredExts, exts[j], 1000000)
 		})
