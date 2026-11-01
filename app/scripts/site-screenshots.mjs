@@ -130,11 +130,6 @@ await session('light', async (page) => {
   await page.waitForTimeout(400);
   await saveClip(page, 'forward-light', ['[role=dialog][aria-labelledby=forward-title]'], 0);
   await page.keyboard.press('Escape');
-  // keyboard shortcuts
-  await page.keyboard.press('Control+,');
-  await page.getByRole('button', { name: 'Keyboard' }).click();
-  await page.waitForTimeout(300);
-  await saveClip(page, 'keyboard-light', ['[role=dialog]'], 0);
 });
 
 await session('dark', async (page) => {

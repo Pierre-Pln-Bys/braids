@@ -50,7 +50,7 @@
   .brand img { width: 26px; height: 26px; }
   .brand .dark { display: none; }
   @media (prefers-color-scheme: dark) { .brand .light { display: none; } .brand .dark { display: block; } }
-  nav { margin-left: auto; display: flex; gap: 24px; font-size: 15px; }
+  nav { margin-left: auto; display: flex; align-items: center; gap: 24px; font-size: 15px; }
   nav a { color: var(--text-2); }
   nav a:hover { color: var(--text); }
   .btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; border-radius: 10px; font-weight: 600; font-size: 15px; background: var(--accent); color: var(--on-accent); }
@@ -116,6 +116,23 @@
   footer .wrap { display: flex; flex-direction: column; gap: 8px; }
   footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
 
+  /* the panel icon: a dark top bar look, the big icon slowly fills */
+  .tray-demo { background: #1C1A18; border-color: #2E2A27; padding: 40px 24px 28px; display: flex; flex-direction: column; align-items: center; gap: 32px; }
+  .tray-big { position: relative; width: 96px; height: 96px; }
+  .tray-big img { position: absolute; inset: 0; width: 96px; height: 96px; opacity: 0; animation: tray-fill 12s ease-in-out infinite; }
+  .tray-big img:nth-child(1) { animation-delay: 0s; }
+  .tray-big img:nth-child(2) { animation-delay: 3s; }
+  .tray-big img:nth-child(3) { animation-delay: 6s; }
+  .tray-big img:nth-child(4) { animation-delay: 9s; }
+  @keyframes tray-fill { 0% { opacity: 0; } 8% { opacity: 1; } 25% { opacity: 1; } 33% { opacity: 0; } 100% { opacity: 0; } }
+  .tray-states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; width: 100%; max-width: 420px; }
+  .tray-states figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 6px 12px; border-radius: 10px; background: #26231F; }
+  .tray-states img { width: 32px; height: 32px; }
+  .tray-states figcaption { font-size: 13px; color: #CFC8C1; text-align: center; }
+  @media (prefers-reduced-motion: reduce) {
+    .tray-big img { animation: none; }
+    .tray-big img:nth-child(4) { opacity: 1; }
+  }
   .row .media.narrow { max-width: 440px; justify-self: center; width: 100%; }
   @media (max-width: 900px) {
     .grid, .pillars { grid-template-columns: repeat(2, 1fr); }
@@ -221,11 +238,25 @@
       </div>
       <div class="row flip">
         <div class="text">
-          <div class="eyebrow">Keyboard</div>
-          <h3>Your keys, your way.</h3>
-          <p><kbd>Ctrl</kbd> <kbd>Space</kbd> to search, <kbd>Ctrl</kbd> <kbd>N</kbd> for the next unread chat, <kbd>Ctrl</kbd> <kbd>T</kbd> for Telegram, <kbd>Ctrl</kbd> <kbd>W</kbd> for WhatsApp. Change any shortcut in the settings. They follow your keyboard layout.</p>
+          <div class="eyebrow">Calm notifications</div>
+          <h3>No red dot. Just a quiet glow.</h3>
+          <p>The braids icon in your panel fills with colour strand by strand: one strand for one unread chat, two for two, all three for three or more. Muted chats and group noise like "joined" don't count.</p>
+          <p>You know something is waiting, without a red badge tugging at you to look right now.</p>
         </div>
-        <div class="media"><img src="img/keyboard-light.png" alt="Keyboard settings with changeable shortcuts" width="760" height="560"></div>
+        <div class="media tray-demo" aria-label="The braids panel icon with no, one, two and three or more unread chats">
+          <div class="tray-big" aria-hidden="true">
+            <img src="img/tray-0.svg" alt="" width="96" height="96">
+            <img src="img/tray-1.svg" alt="" width="96" height="96">
+            <img src="img/tray-2.svg" alt="" width="96" height="96">
+            <img src="img/tray-3.svg" alt="" width="96" height="96">
+          </div>
+          <div class="tray-states">
+            <figure><img src="img/tray-0.svg" alt="" width="32" height="32"><figcaption>Nothing new</figcaption></figure>
+            <figure><img src="img/tray-1.svg" alt="" width="32" height="32"><figcaption>1 chat</figcaption></figure>
+            <figure><img src="img/tray-2.svg" alt="" width="32" height="32"><figcaption>2 chats</figcaption></figure>
+            <figure><img src="img/tray-3.svg" alt="" width="32" height="32"><figcaption>3 or more</figcaption></figure>
+          </div>
+        </div>
       </div>
     </div>
   </section>
