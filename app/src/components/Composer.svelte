@@ -321,7 +321,7 @@
         oninput={onInput}
         onkeydown={onKeydown}
         onclick={updateMention}
-        onblur={() => setTimeout(() => (mention = null), 150)}
+        onblur={() => setTimeout(() => { if (document.activeElement !== textarea) mention = null; }, 150)}
         onpaste={onPaste}
       ></textarea>
       {#if suggestions.length}

@@ -8,11 +8,12 @@
   Context menu, confirmation dialog, image lightbox, toasts.
 -->
 <script lang="ts">
-  import { ExternalLink, X } from '@lucide/svelte';
+  import { X } from '@lucide/svelte';
   import { tick } from 'svelte';
   import * as api from '../lib/api';
   import { store } from '../lib/store.svelte';
   import { ui } from '../lib/ui.svelte';
+  import Lightbox from './Lightbox.svelte';
 
   let menuEl: HTMLDivElement | undefined = $state();
   let confirmBtn: HTMLButtonElement | undefined = $state();
@@ -47,7 +48,6 @@
     if (e.key !== 'Escape') return;
     if (ui.menu) ui.menu = null;
     else if (ui.confirmRequest) answer(false);
-    else if (ui.lightbox) ui.lightbox = null;
   }
 
   function onMenuKey(e: KeyboardEvent) {
@@ -88,19 +88,7 @@
   </div>
 {/if}
 
-{#if ui.lightbox}
-  {@const lb = ui.lightbox}
-  <div class="lightbox" role="dialog" aria-modal="true" aria-label={lb.name}>
-    <div class="lb-bar">
-      <span class="lb-name">{lb.name}</span>
-      <button class="icon-btn" aria-label="Open with default app" title="Open with default app" onclick={() => api.openPath(lb.path).catch((e) => store.toastError(e))}><ExternalLink size={19} /></button>
-      <button class="icon-btn" aria-label="Close" onclick={() => (ui.lightbox = null)}><X size={20} /></button>
-    </div>
-    <div class="lb-img" role="presentation" onclick={(e) => e.target === e.currentTarget && (ui.lightbox = null)}>
-      <img src={lb.src} alt={lb.name} />
-    </div>
-  </div>
-{/if}
+{#if ui.lightbox}<Lightbox />{/if}
 
 {#if store.toasts.length}
   <div class="toasts" role="status" aria-live="polite">
@@ -117,11 +105,4 @@
 <style>
   .menu-scrim { position: fixed; inset: 0; z-index: 79; }
   .confirm { width: 400px; }
-  .lightbox { position: fixed; inset: 0; z-index: 70; background: rgba(15, 14, 13, 0.92); display: flex; flex-direction: column; animation: fade var(--duration-fast) var(--ease); }
-  .lb-bar { display: flex; align-items: center; gap: 4px; padding: 10px 12px 10px 20px; color: #f2efeb; }
-  .lb-bar .icon-btn { color: #f2efeb; }
-  .lb-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.1); }
-  .lb-name { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lb-img { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 24px 24px; }
-  .lb-img img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
 </style>

@@ -23,6 +23,11 @@ export interface ConfirmRequest {
   resolve: (ok: boolean) => void;
 }
 
+export interface LightboxItem {
+  path: string;
+  name: string;
+}
+
 class Ui {
   width = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
   infoOpen = $state(false);
@@ -33,7 +38,8 @@ class Ui {
   joinLink = $state(''); // opens the New chat dialog on "Join a group" with this link
   drawerOpen = $state(false); // sidebar as drawer (narrow layout)
   chatSearchOpen = $state(false);
-  lightbox = $state<{ src: string; name: string; path: string } | null>(null);
+  // image viewer: the images it can switch between and the one shown
+  lightbox = $state<{ items: LightboxItem[]; index: number } | null>(null);
   confirmRequest = $state<ConfirmRequest | null>(null);
   menu = $state<{ x: number; y: number; items: MenuItem[]; leftOf?: boolean } | null>(null); // leftOf: x is the right edge
   reply = $state<Message | null>(null);
@@ -76,3 +82,9 @@ class Ui {
 }
 
 export const ui = new Ui();
+
+// Opens the image viewer on one of several images (paths of local files).
+export function openLightbox(items: LightboxItem[], path: string) {
+  const index = Math.max(0, items.findIndex((it) => it.path === path));
+  ui.lightbox = { items: items.length ? items : [{ path, name: path.split('/').pop() ?? '' }], index };
+}

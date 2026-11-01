@@ -9,14 +9,14 @@
   A 300 px column at >= 1280 px, an overlay sheet below.
 -->
 <script lang="ts">
-  import { Archive, ArchiveRestore, Bell, BellOff, LogOut, Search, Star, StarOff, Trash2, X } from '@lucide/svelte';
+  import { Archive, ArchiveRestore, Bell, BellOff, ChevronDown, ChevronUp, Images, LogOut, Search, Star, StarOff, Trash2, X } from '@lucide/svelte';
   import { openLink } from '../lib/actions';
   import * as api from '../lib/api';
   import { linkify } from '../lib/format';
   import { protocolMeta } from '../lib/protocols';
   import { fileMime, fileReady, splitKey, store } from '../lib/store.svelte';
   import type { Message } from '../lib/types';
-  import { ui } from '../lib/ui.svelte';
+  import { openLightbox, ui } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
   import ProtocolBadge from './ProtocolBadge.svelte';
 
@@ -46,9 +46,12 @@
   const description = $derived(chat ? store.description(accountId, chatId).trim() : '');
   const longDescription = $derived(description.length > 220 || description.split('\n').length > 4);
   let descriptionOpen = $state(false);
+  const MEMBERS_SHOWN = 5;
+  let membersOpen = $state(false);
   $effect(() => {
     void chatId;
     descriptionOpen = false;
+    membersOpen = false;
   });
 
   function onDescriptionClick(e: MouseEvent) {
@@ -103,6 +106,7 @@
 
       <div class="actions">
         <button onclick={() => (ui.chatSearchOpen = true)}><Search size={18} />Search</button>
+        <button onclick={() => (ui.media = { chatKey })}><Images size={18} />Media</button>
         <button class:on={store.category(chat) === 'favorite'}
           onclick={() => store.setCategory(chat, store.category(chat) === 'favorite' ? 'default' : 'favorite')}>
           {#if store.category(chat) === 'favorite'}<StarOff size={18} />Unfavorite{:else}<Star size={18} />Favorite{/if}
@@ -126,21 +130,26 @@
           <div class="muted">The member list is not available.</div>
         {/if}
         <div class="members">
-          {#each members.slice(0, 200) as member (member.id)}
+          {#each members.slice(0, membersOpen ? 200 : MEMBERS_SHOWN) as member (member.id)}
             <div class="member">
               <Avatar name={member.name || member.id} id={member.id} size={30} owner={accountId} online={store.isOnline(accountId, member.id)} ring="var(--bg-1)" />
               <span class="member-name">{member.isSelf ? 'You' : member.name || member.id}</span>
             </div>
           {/each}
-          {#if members.length > 200}<div class="muted">and {members.length - 200} more</div>{/if}
+          {#if membersOpen && members.length > 200}<div class="muted">and {members.length - 200} more</div>{/if}
         </div>
+        {#if members.length > MEMBERS_SHOWN}
+          <button class="more members-toggle" onclick={() => (membersOpen = !membersOpen)} aria-expanded={membersOpen}>
+            {#if membersOpen}<ChevronUp size={15} />Show less{:else}<ChevronDown size={15} />Show all {members.length}{/if}
+          </button>
+        {/if}
       {/if}
 
       {#if images.length}
         <div class="section media-head">Shared media<button class="link" onclick={() => (ui.media = { chatKey })}>Show all</button></div>
         <div class="media">
           {#each images as m (m.id)}
-            <button onclick={() => (ui.lightbox = { src: api.fileUrl(m.file!.path), name: m.file!.name, path: m.file!.path })} aria-label="Open {m.file!.name}">
+            <button onclick={() => openLightbox(images.map((x) => ({ path: x.file!.path, name: x.file!.name })), m.file!.path)} aria-label="Open {m.file!.name}">
               <img src={api.fileUrl(m.file!.path)} alt={m.file!.name} loading="lazy" />
             </button>
           {/each}
@@ -169,6 +178,7 @@
   .description p.clamped { display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   .description :global(a) { color: var(--accent); }
   .more { align-self: flex-start; border: 0; background: none; padding: 0; font-size: 12px; font-weight: 600; color: var(--accent); }
+  .members-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: -4px; }
   .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 8px; }
   .actions button {
     display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: var(--radius-lg); border: 1px solid var(--border);

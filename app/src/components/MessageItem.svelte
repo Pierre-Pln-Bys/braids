@@ -13,9 +13,9 @@
   import { openLink } from '../lib/actions';
   import * as api from '../lib/api';
   import { isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
-  import { fileMime, fileReady, store } from '../lib/store.svelte';
+  import { chatKey, fileMime, fileReady, store } from '../lib/store.svelte';
   import type { Account, Chat, Message } from '../lib/types';
-  import { ui, type MenuItem } from '../lib/ui.svelte';
+  import { openLightbox, ui, type MenuItem } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
 
   let {
@@ -104,7 +104,13 @@
   function openFile() {
     if (!m.file) return;
     if (ready) {
-      if (isImage) ui.lightbox = { src: api.fileUrl(m.file.path), name: m.file.name, path: m.file.path };
+      if (isImage) {
+        // switch between the loaded images of the chat
+        const images = (store.messages[chatKey(m.accountId, m.chatId)]?.items ?? [])
+          .filter((x) => fileReady(x.file) && fileMime(x.file).startsWith('image/'))
+          .map((x) => ({ path: x.file!.path, name: x.file!.name }));
+        openLightbox(images, m.file.path);
+      }
       else api.openPath(m.file.path).catch((e) => store.toastError(e));
     } else if (m.file.status !== 'downloading') {
       download();

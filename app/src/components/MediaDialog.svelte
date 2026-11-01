@@ -16,7 +16,7 @@
   import * as api from '../lib/api';
   import { chatKey, fileMime, fileReady, splitKey, store } from '../lib/store.svelte';
   import type { Message } from '../lib/types';
-  import { ui } from '../lib/ui.svelte';
+  import { openLightbox, ui } from '../lib/ui.svelte';
 
   type Kind = 'media' | 'files' | 'links';
   const TABS: { kind: Kind; label: string }[] = [
@@ -130,7 +130,10 @@
       if (m.file?.status !== 'downloading') download(m);
       return;
     }
-    if (fileMime(m.file).startsWith('image/')) ui.lightbox = { src: api.fileUrl(m.file!.path), name: m.file!.name, path: m.file!.path };
+    if (fileMime(m.file).startsWith('image/')) {
+      const images = items.filter((x) => fileReady(x.file) && fileMime(x.file).startsWith('image/')).map((x) => ({ path: x.file!.path, name: x.file!.name }));
+      openLightbox(images, m.file!.path);
+    }
     else api.openPath(m.file!.path).catch((e) => store.toastError(e));
   }
 
@@ -224,13 +227,14 @@
 </div>
 
 <style>
-  .dialog.wide { width: min(760px, calc(100vw - 32px)); height: min(640px, calc(100vh - 64px)); display: flex; flex-direction: column; }
+  /* nearly the whole window: media wants room */
+  .dialog.wide { width: min(1600px, calc(100vw - 48px)); max-width: none; height: calc(100vh - 48px); max-height: none; display: flex; flex-direction: column; }
   .tabs { display: flex; gap: 4px; padding: 0 16px 8px; border-bottom: 1px solid var(--border); }
   .tabs button { border: 0; background: none; padding: 6px 12px; border-radius: var(--radius-md); font-size: 13px; font-weight: 600; color: var(--text-muted); }
   .tabs button:hover { background: var(--hover); }
   .tabs button.active { color: var(--accent); background: var(--accent-soft); }
   .body { flex: 1; min-height: 0; padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 2px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; }
   .tile { position: relative; aspect-ratio: 1; }
   .thumb { width: 100%; height: 100%; border: 0; padding: 0; border-radius: 8px; overflow: hidden; background: var(--skeleton); display: block; }
   .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }

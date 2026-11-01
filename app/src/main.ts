@@ -12,6 +12,14 @@ import './styles/tokens.css';
 import './styles/app.css';
 
 theme.init();
+
+// No browser context menu (Reload, Inspect Element, ...): the app has its own
+// menus; text fields keep theirs for cut / copy / paste.
+window.addEventListener('contextmenu', (e) => {
+  const t = e.target as HTMLElement | null;
+  const editable = !!t?.closest('input, textarea, [contenteditable=""], [contenteditable="true"]');
+  if (!editable) e.preventDefault();
+});
 const app = mount(App, { target: document.getElementById('app')! });
 store.start();
 

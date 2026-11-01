@@ -96,6 +96,12 @@ try {
   await page.locator('[data-msg-id]').first().waitFor();
   check((await page.locator('.msg .sender').count()) > 0, 'group shows sender names');
   check((await page.locator('.system-line').first().textContent()) === 'Andy joined', 'group event shown as a system line');
+  await page.keyboard.press('Control+i');
+  await page.locator('.info .member').first().waitFor();
+  check(await page.locator('.info .member').count() === 5, 'member list shows 5');
+  await page.getByRole('button', { name: 'Show all 6' }).click();
+  check(await page.locator('.info .member').count() === 6, 'member list expands');
+  await page.keyboard.press('Control+i');
   await composer.fill('Hello *team* `code`');
   await composer.press('Enter');
   const own = page.locator('.msg.own').last();
@@ -107,6 +113,7 @@ try {
   await composer.fill('');
   await composer.pressSequentially('thanks @an');
   await page.locator('.mentions [role=option]', { hasText: 'Andy' }).waitFor();
+  await page.waitForFunction(() => document.querySelectorAll('.mentions [role=option]').length === 1, null, { timeout: 5000 }).catch(() => {});
   check(await page.locator('.mentions [role=option]').count() === 1, 'mention suggestions filtered by name');
   await shot('mention');
   await composer.press('Enter');
@@ -252,6 +259,41 @@ try {
   await page.getByRole('button', { name: 'Show all' }).click();
   check((await page.locator('#media-title').textContent()).startsWith('Shared in'), 'chat media from the info panel');
   await page.keyboard.press('Escape');
+  await page.locator('.info .actions').getByRole('button', { name: 'Media' }).click();
+  check((await page.locator('#media-title').textContent()).startsWith('Shared in'), 'Media button in the chat info');
+  await page.keyboard.press('Escape');
+
+  // image viewer: switch, zoom, pan, close
+  await page.locator('.msg .image').last().click();
+  await page.locator('.lightbox img').waitFor();
+  const pos = () => page.locator('.lb-pos').textContent();
+  const first = await pos();
+  check(/^\d+ \/ \d+$/.test(first), `viewer shows the position among the chat's images (${first})`);
+  await page.keyboard.press('k');
+  check((await pos()) !== first, 'k shows the previous image');
+  await page.keyboard.press('j');
+  check((await pos()) === first, 'j shows the next image');
+  await page.keyboard.press('+');
+  check((await page.locator('.lb-zoom').textContent()) === '150%', '+ zooms in');
+  await page.keyboard.press('ArrowLeft');
+  check((await pos()) === first && (await page.locator('.lightbox img').getAttribute('style')).includes('translate(80px'), 'arrows pan while zoomed');
+  await page.locator('.lb-stage').hover();
+  await page.mouse.wheel(0, -300);
+  check(parseInt(await page.locator('.lb-zoom').textContent()) > 150, 'wheel zooms in');
+  await page.keyboard.press('0');
+  check((await page.locator('.lb-zoom').textContent()) === '100%', '0 resets the zoom');
+  await page.keyboard.press('Escape');
+  await page.locator('.lightbox').waitFor({ state: 'detached' });
+  check(true, 'Esc closes the viewer');
+
+  // no browser context menu outside text fields
+  const prevented = (sel) => page.locator(sel).first().evaluate((el) => {
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  });
+  check(await prevented('.conv header .who-sub, .conv header'), 'no browser menu on the app');
+  check(!(await prevented('textarea[aria-label=Message]')), 'text fields keep their menu');
   await page.keyboard.press('Control+i');
 
   // unread message counts
