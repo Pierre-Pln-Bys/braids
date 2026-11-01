@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.7.0` (milestone M3). The API is JSON-RPC 2.0
+Status: draft, API version `0.8.0` (milestone M3). The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -53,7 +53,7 @@ Objects
 
     {"accountId", "protocol": "Telegram|WhatsAppMd|Signal|Matrix|Dummy",
      "displayName", "selfId", "state": "connecting|online|offline|error",
-     "error": "<message if state is error>",
+     "error": "<message if state is error>", "syncing": <fetching or syncing>,
      "capabilities": {"editWindowSec": -1 (unlimited) | 0 (none) | seconds,
                       "pinChat", "archiveChat", "pinMessage",
                       "limitedReactions", "readReceiptsPerMessage",
@@ -62,12 +62,15 @@ Objects
 **Chat**
 
     {"accountId", "id", "name", "isGroup", "isUnread", "isUnreadMention",
-     "isMuted", "isPinned", "isArchived",
+     "unreadCount", "isMuted", "isPinned", "isArchived",
      "lastActivity": <time of last message, -1 if unknown>,
      "lastMessage": Message | null, "typing": [userId]}
 
-Protocols report unread state per chat, not counts, so there is no unread
-count yet. `isMuted` is braids' own setting when one was made with
+Protocols report unread state per chat, not counts: `unreadCount` is
+braidsd's count of received unread messages after the last own or read one
+(from the loaded messages and the history cache; at least 1 when `isUnread`,
+0 otherwise). `isUnread` is also true for chats marked with
+`chats.markUnread` until they are read. `isMuted` is braids' own setting when one was made with
 `chats.mute`, else the messenger's; muted chats send no `notification`
 (except for mentions).
 
@@ -114,10 +117,12 @@ Methods
 | `chats.pin` | `accountId`, `chatId`, `isPinned`? (true) | `{}` (error 4 if unsupported) |
 | `chats.archive` | `accountId`, `chatId`, `isArchived`? (true) | `{}` (error 4 if unsupported) |
 | `chats.mute` | `accountId`, `chatId`, `isMuted`? (true) | `{}`, then `chat.updated`; kept by braidsd for every protocol (the messenger's own setting is not changed) |
+| `chats.markUnread` | `accountId`, `chatId` | `{}`, then `chat.updated`; braids' own mark (not synced to the messenger), cleared by `messages.markRead` |
 | `chats.delete` | `accountId`, `chatId` | `{}`, then `chat.removed` (Matrix: leave + forget) |
 | `contacts.list` | `accountId` | `[Contact]` |
 | `avatars.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, avatars: {id: path}}` with the known ones (`""`: no picture); the others are fetched once per session and arrive as `avatar.updated` |
 | `descriptions.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, descriptions: {id: text}}` (group description or user bio; for a one-to-one chat the other user's) with the known ones (`""`: none); the others are fetched once per session and arrive as `description.updated` |
+| `media.list` | `kind` (`media`: images and videos, `files`, `links`), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`? (ms, from `nextBefore`), `limit`? (60, max 200) | `{items: [Message] newest first, nextBefore}` (`nextBefore` 0: no more); from the history cache and the loaded messages, `files.download` works for these too |
 | `members.get` | `accountId`, `chatId` | `{accountId, chatId, members: [Contact]}` (async) |
 | `messages.get` | `accountId`, `chatId`, `fromMsgId`? (latest), `limit`? (30) | `{accountId, chatId, fromMsgId, messages: [Message] oldest first, timedOut}` (async, from cache or server) |
 | `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute) | `{}`; the message arrives as `message.added` |
@@ -146,7 +151,7 @@ Events
 | `account.added` | `{setupId, account: Account}` |
 | `account.setupFailed` | `{setupId, message}` (details were sent as `account.auth` error steps) |
 | `account.removed` | `{accountId}` |
-| `account.state` | `{accountId, state, error}` |
+| `account.state` | `{accountId, state, error, syncing}` (`syncing`: the protocol is fetching or syncing, e.g. catching up after a reconnect) |
 | `account.connected` | `{accountId, success}` (protocol login done, chats are being fetched) |
 | `chat.updated` | `Chat` (new or changed) |
 | `chat.created` | `{accountId, chatId}` (after `chats.create`) |

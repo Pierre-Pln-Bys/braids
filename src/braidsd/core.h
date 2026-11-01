@@ -53,6 +53,7 @@ private:
     bool isReady = false; // false while the account is being set up
     std::string state = "offline";
     std::string error;
+    bool syncing = false; // the protocol is fetching / syncing data
   };
 
   struct Setup

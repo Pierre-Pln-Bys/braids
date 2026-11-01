@@ -26,7 +26,7 @@
 #include "timeutil.h"
 
 // semver of the API; clients must match the major version
-static const std::string s_ApiVersion = "0.7.0";
+static const std::string s_ApiVersion = "0.8.0";
 static const int64_t s_StartTime = TimeUtil::GetCurrentTimeMSec();
 
 static const char* AuthStepToString(AuthStep p_Step)
@@ -320,6 +320,11 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
                              ParamBool(params, "isArchived", true));
     p_Reply.Ok(json::object());
   }
+  else if (p_Method == "chats.markUnread")
+  {
+    m_ChatModel->MarkUnread(ParamStr(params, "accountId"), ParamStr(params, "chatId"));
+    p_Reply.Ok(json::object());
+  }
   else if (p_Method == "chats.mute")
   {
     m_ChatModel->MuteChat(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
@@ -401,6 +406,12 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
     m_ChatModel->SendTyping(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
                             ParamBool(params, "isTyping", true));
     p_Reply.Ok(json::object());
+  }
+  else if (p_Method == "media.list")
+  {
+    p_Reply.Ok(m_ChatModel->GetMedia(ParamStrOpt(params, "accountId"), ParamStrOpt(params, "chatId"),
+                                      ParamStr(params, "kind"), ParamInt(params, "beforeTime", 0),
+                                      (int)ParamInt(params, "limit", 60)));
   }
   else if ((p_Method == "avatars.get") || (p_Method == "descriptions.get"))
   {
@@ -806,6 +817,14 @@ void Core::OnStatus(const std::string& p_AccountId, uint32_t p_Flags)
   if (ait == m_Accounts.end()) return;
 
   Account& account = ait->second;
+  const bool syncing = ((p_Flags & (Status::FlagFetching | Status::FlagSyncing)) != 0);
+  if (syncing != account.syncing)
+  {
+    account.syncing = syncing;
+    Emit("account.state", json{ { "accountId", account.id }, { "state", account.state }, { "error", account.error },
+                                { "syncing", account.syncing } });
+  }
+
   if (p_Flags & Status::FlagOnline)
   {
     SetAccountState(account, "online", "");
@@ -826,7 +845,8 @@ void Core::SetAccountState(Account& p_Account, const std::string& p_State, const
 
   p_Account.state = p_State;
   p_Account.error = p_Error;
-  Emit("account.state", json{ { "accountId", p_Account.id }, { "state", p_State }, { "error", p_Error } });
+  Emit("account.state", json{ { "accountId", p_Account.id }, { "state", p_State }, { "error", p_Error },
+                              { "syncing", p_Account.syncing } });
 }
 
 // Helpers
@@ -902,6 +922,7 @@ json Core::AccountToJson(const Account& p_Account)
     { "selfId", p_Account.protocol->GetSelfId() },
     { "state", p_Account.state },
     { "error", p_Account.error },
+    { "syncing", p_Account.syncing },
     { "capabilities", ChatModel::CapabilitiesToJson(p_Account.protocol, p_Account.protocolName) },
   };
 }

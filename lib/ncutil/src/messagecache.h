@@ -278,6 +278,16 @@ public:
                               const std::string& p_MsgId, const bool p_Sync);
   static bool GetOneMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
                             const std::string& p_MsgId, std::vector<ChatMessage>& p_ChatMessages);
+  // braids: messages with an attachment (p_Links false) or a link in the
+  // text (true), newest first, older than p_BeforeTime; all chats when
+  // p_ChatId is empty. Pairs of chat id and message.
+  static std::vector<std::pair<std::string, ChatMessage>> FetchMediaSync(const std::string& p_ProfileId,
+                                                                         const std::string& p_ChatId,
+                                                                         bool p_Links, int64_t p_BeforeTime,
+                                                                         int p_Limit);
+  // braids: number of unread received messages per chat (after the last
+  // own or read one)
+  static std::map<std::string, int> GetUnreadCountsSync(const std::string& p_ProfileId);
   static void FindMessage(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_FromMsgId,
                           const std::string& p_LastMsgId, const std::string& p_FindText,
                           const std::string& p_FindMsgId, bool p_FindPinned);

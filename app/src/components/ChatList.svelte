@@ -9,7 +9,7 @@
   newest activity first, favorites with a gold avatar ring. Search by name, context menu per chat.
 -->
 <script lang="ts">
-  import { AtSign, BellOff, Menu as MenuIcon, Search, SquarePen, X } from '@lucide/svelte';
+  import { AtSign, BellOff, LoaderCircle, Menu as MenuIcon, Search, SquarePen, WifiOff, X } from '@lucide/svelte';
   import { chatMenu } from '../lib/actions';
   import { listTime } from '../lib/format';
   import { bindings, comboKeys } from '../lib/keybinds.svelte';
@@ -92,6 +92,11 @@
         <button class="icon-btn" aria-label="Open sidebar" onclick={() => (ui.drawerOpen = true)}><MenuIcon size={20} strokeWidth={1.75} /></button>
       {/if}
       <h2>{title}</h2>
+      {#if store.syncStatus === 'updating'}
+        <span class="sync" role="status" title="Fetching the latest messages"><LoaderCircle size={13} class="spin" />Updating…</span>
+      {:else if store.syncStatus === 'offline'}
+        <span class="sync" role="status" title="No network: chats may be outdated"><WifiOff size={13} />Offline</span>
+      {/if}
       <button class="icon-btn" aria-label="New chat" title="New chat" onclick={() => (ui.newChatOpen = true)} disabled={!store.accountList.length}>
         <SquarePen size={19} strokeWidth={1.75} />
       </button>
@@ -159,7 +164,10 @@
               {/if}
             </span>
             {#if c.isUnreadMention}<span class="mention-dot" title="Mentioned"><AtSign size={12} strokeWidth={2.5} /></span>{/if}
-            {#if c.isUnread}<span class="dot" class:muted={c.isMuted} title="Unread"></span>{/if}
+            {#if c.isUnread}
+              {@const n = store.chatUnread(c)}
+              <span class="unread-count" class:muted={c.isMuted} title="{n} unread">{n > 999 ? '999+' : n}</span>
+            {/if}
           </div>
         </div>
       </div>
@@ -189,6 +197,7 @@
   .head { padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 10px; }
   .title-row { display: flex; align-items: center; gap: 6px; }
   h2 { margin: 0; font-size: 18px; font-weight: 650; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sync { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
   .search {
     display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 10px; border-radius: var(--radius-md);
     background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);
@@ -217,7 +226,11 @@
   .prefix.draft { color: var(--danger); font-weight: 600; }
   .typing { color: var(--accent); font-style: italic; }
   .flag { color: var(--text-muted); display: flex; flex-shrink: 0; }
-  .dot.muted { background: var(--border-strong); }
+  .unread-count {
+    min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--on-accent);
+    font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; flex-shrink: 0; font-variant-numeric: tabular-nums;
+  }
+  .unread-count.muted { background: var(--border-strong); color: var(--text-2); }
   .mention-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .empty { padding: 24px 16px; color: var(--text-muted); font-size: 13px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .empty p { margin: 0; }

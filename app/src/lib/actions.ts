@@ -6,7 +6,7 @@
 
 // Chat and message actions shared by the chat list, conversation and info panel.
 
-import { Archive, ArchiveRestore, Bell, BellOff, MailCheck, Star, StarOff, Trash2 } from '@lucide/svelte';
+import { Archive, ArchiveRestore, Bell, BellOff, Mail, MailCheck, Star, StarOff, Trash2 } from '@lucide/svelte';
 import * as api from './api';
 import { inviteLinkProtocol } from './protocols';
 import { splitKey, store } from './store.svelte';
@@ -23,6 +23,12 @@ export function chatMenu(c: Chat): MenuItem[] {
         const msg = c.lastMessage;
         if (msg) await api.call('messages.markRead', { accountId: c.accountId, chatId: c.id, msgId: msg.id }).catch((e) => store.toastError(e));
       },
+    });
+  } else {
+    items.push({
+      label: 'Mark as unread',
+      icon: Mail,
+      run: () => api.call('chats.markUnread', { accountId: c.accountId, chatId: c.id }).catch((e) => store.toastError(e)),
     });
   }
   const category = store.category(c);

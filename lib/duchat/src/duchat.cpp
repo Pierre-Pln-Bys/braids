@@ -318,7 +318,8 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           std::string name = message.first;
           std::string text = message.second;
           std::string id = name + "_0";
-          bool isUnread = false;
+          // Kevin: two unread messages, for unread counts
+          bool isUnread = (name == "Kevin");
 
           ChatInfo chatInfo;
           chatInfo.id = id;
@@ -340,6 +341,15 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           chatMessage.isRead = !isUnread;
           t = t - 100;
           s_Messages[id].push_back(chatMessage);
+
+          if (isUnread)
+          {
+            // an earlier one (messages are newest first)
+            chatMessage.id = id + "_" + std::to_string(chatMessage.timeSent / 1000 - 1);
+            chatMessage.text = "Hey Stanley.";
+            chatMessage.timeSent -= 1000;
+            s_Messages[id].push_back(chatMessage);
+          }
         }
 
         // Self
@@ -436,7 +446,10 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           std::static_pointer_cast<SendMessageRequest>(p_RequestMessage);
         const std::string& chatId = sendMessageRequest->chatId;
         ChatMessage chatMessage = sendMessageRequest->chatMessage;
-        const int64_t now = TimeUtil::GetCurrentTimeMSec();
+        // unique also for messages sent within the same millisecond
+        static int64_t s_LastSent = 0;
+        const int64_t now = std::max(TimeUtil::GetCurrentTimeMSec(), s_LastSent + 1);
+        s_LastSent = now;
         chatMessage.id = GetSelfId() + "_" + std::to_string(now);
         chatMessage.senderId = GetSelfId();
         chatMessage.timeSent = now;

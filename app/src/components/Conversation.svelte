@@ -7,6 +7,8 @@
 
   Header, message history (paged back on scroll, day separators, "new
   messages" marker, grouping), typing indicator, in-chat search, composer.
+  Only a window of the loaded messages is rendered (the newest WINDOW, more
+  revealed while scrolling up), so long chats stay fast.
 -->
 <script lang="ts">
   import { ArrowDown, ChevronLeft, ChevronUp, EllipsisVertical, Lock, PanelRight, Search, Upload, X } from '@lucide/svelte';
@@ -25,18 +27,28 @@
   let { chatKey }: { chatKey: string } = $props();
 
   const GROUP_GAP = 5 * 60 * 1000;
+  const WINDOW = 150; // messages rendered when at the bottom
+  const REVEAL = 60; // more rendered per step when scrolling up
   const [accountId, chatId] = $derived(splitKey(chatKey));
   const chat = $derived(store.chats[chatKey]);
   const account = $derived(store.accounts[accountId]);
   const list = $derived(store.messages[chatKey]);
   const items = $derived(list?.items ?? []);
-  // index ranges [from, to) of items per day
+  // first rendered message, by id so that it stays put when messages are
+  // added or removed ('' or unknown: the start of the window at the bottom)
+  let startId = $state('');
+  const startIdx = $derived.by(() => {
+    const i = startId ? items.findIndex((m) => m.id === startId) : -1;
+    return i >= 0 ? i : Math.max(0, items.length - WINDOW);
+  });
+  // index ranges [from, to) of rendered items per day
   const days = $derived.by(() => {
     const out: { key: number; from: number; to: number }[] = [];
-    items.forEach((m, i) => {
-      if (i === 0 || !isSameDay(items[i - 1].time, m.time)) out.push({ key: startOfDay(m.time), from: i, to: i + 1 });
+    for (let i = startIdx; i < items.length; i++) {
+      const m = items[i];
+      if (i === startIdx || !isSameDay(items[i - 1].time, m.time)) out.push({ key: startOfDay(m.time), from: i, to: i + 1 });
       else out[out.length - 1].to = i + 1;
-    });
+    }
     return out;
   });
   const typing = $derived(store.typingNames(chatKey));
@@ -81,6 +93,7 @@
     lastCount = count;
     lastNewestId = newest;
     if (opened) {
+      startId = '';
       searchText = '';
       searchStatus = '';
       if (chat?.isGroup && !store.members[key]) {
@@ -99,6 +112,21 @@
     atBottom = true;
   }
 
+  // renders older loaded messages above, keeping the view in place
+  async function reveal(): Promise<boolean> {
+    if (!scroller || startIdx === 0) return false;
+    const fromBottom = scroller.scrollHeight - scroller.scrollTop;
+    startId = items[Math.max(0, startIdx - REVEAL)].id;
+    await tick();
+    if (scroller) scroller.scrollTop = scroller.scrollHeight - fromBottom;
+    return true;
+  }
+
+  // back at the bottom: render only the newest messages again
+  function trimWindow() {
+    if (atBottom && startId && items.length - startIdx > WINDOW) startId = '';
+  }
+
   // older messages go on top; the view keeps its distance from the bottom
   // (stays at the bottom when it was there at the end: images may have
   // grown the content and moved the view while the page was loading)
@@ -108,6 +136,7 @@
     const fromBottom = scroller.scrollHeight - scroller.scrollTop;
     const n = await store.loadOlder(key);
     if (!n || !scroller || key !== chatKey) return;
+    startId = items[0]?.id ?? ''; // render the new page
     await tick();
     if (atBottom) scrollToBottom();
     else scroller.scrollTop = scroller.scrollHeight - fromBottom;
@@ -115,8 +144,11 @@
 
   // load more when the history does not fill the view yet
   async function fillViewport() {
-    if (scroller && list?.loaded && !list.atStart && !list.loading && scroller.scrollHeight <= scroller.clientHeight + 40) {
-      await loadOlder();
+    if (scroller && list?.loaded && !list.loading && scroller.scrollHeight <= scroller.clientHeight + 40) {
+      if (!(await reveal())) {
+        if (list.atStart) return;
+        await loadOlder();
+      }
       await tick();
       if (atBottom) scrollToBottom();
     }
@@ -125,8 +157,17 @@
   function onScroll() {
     if (!scroller) return;
     atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
-    if (scroller.scrollTop < 300) loadOlder();
-    if (atBottom) store.markCurrentRead();
+    // away from the bottom the window stays where it is (new messages do not
+    // shift it)
+    if (!atBottom && !startId && items.length) startId = items[startIdx].id;
+    if (scroller.scrollTop < 300) {
+      if (startIdx > 0) reveal();
+      else loadOlder();
+    }
+    if (atBottom) {
+      store.markCurrentRead();
+      trimWindow();
+    }
   }
 
   // stay at the bottom while content grows (images, reactions, edits) or
@@ -144,6 +185,12 @@
   // jump to a message, loading older pages until it is there
   async function jumpTo(msgId: string): Promise<boolean> {
     for (let i = 0; i < 25; i++) {
+      // loaded but outside the rendered window: render from a bit before it
+      const idx = items.findIndex((m) => m.id === msgId);
+      if (idx >= 0 && idx < startIdx) {
+        startId = items[Math.max(0, idx - 10)].id;
+        await tick();
+      }
       const el = scroller?.querySelector(`[data-msg-id="${CSS.escape(msgId)}"]`) as HTMLElement | null;
       if (el) {
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -152,6 +199,7 @@
       }
       if (!list || list.atStart) break;
       const n = await store.loadOlder(chatKey);
+      if (items.length) startId = items[0].id;
       await tick();
       if (!n && list.atStart) break;
     }
@@ -181,6 +229,14 @@
 
   $effect(() => {
     if (ui.chatSearchOpen) tick().then(() => searchInput?.focus());
+  });
+
+  // "Show in chat" from elsewhere (shared media)
+  $effect(() => {
+    const req = ui.jumpRequest;
+    if (!req || req.chatKey !== chatKey || !list?.loaded) return;
+    ui.jumpRequest = null;
+    tick().then(() => jumpTo(req.msgId));
   });
 
   async function openReactions(m: Message, anchor: HTMLElement) {
@@ -275,7 +331,9 @@
 
     <div class="messages scroll" bind:this={scroller} onscroll={onScroll}>
       <div class="inner" bind:this={inner}>
-      {#if list?.atStart}
+      {#if startIdx > 0}
+        <div class="start"><span class="loading-dots"><span></span><span></span><span></span></span></div>
+      {:else if list?.atStart}
         <div class="start">
           {#if chat.isGroup}<Lock size={13} />{/if}
           <span>Start of the conversation</span>

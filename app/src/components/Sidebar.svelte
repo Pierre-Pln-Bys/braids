@@ -9,7 +9,7 @@
   settings. 232 px, collapsible to 60 px; a drawer in the narrow layout.
 -->
 <script lang="ts">
-  import { Archive, CircleAlert, Inbox, LoaderCircle, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
+  import { Archive, CircleAlert, Images, Inbox, LoaderCircle, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
   import { hint } from '../lib/keybinds.svelte';
   import { settings } from '../lib/settings.svelte';
   import { store, type Filter } from '../lib/store.svelte';
@@ -104,6 +104,10 @@
       <span class="ico"><Archive size={18} strokeWidth={1.75} /></span>
       {#if !collapsed}<span class="label">Archived</span>{/if}
       {#if archivedCount > 0 && !collapsed}<span class="count muted">{archivedCount}</span>{/if}
+    </button>
+    <button class="item" onclick={() => { ui.media = { chatKey: '' }; ui.drawerOpen = false; }} title={collapsed ? 'Shared media' : undefined}>
+      <span class="ico"><Images size={18} strokeWidth={1.75} /></span>
+      {#if !collapsed}<span class="label">Shared media</span>{/if}
     </button>
   </div>
 

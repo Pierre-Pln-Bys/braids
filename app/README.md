@@ -92,7 +92,8 @@ Layout
 Known gaps (v1)
 ---------------
 
-- Unread state per chat is a dot: protocols report unread state, not counts.
-- Muting is braids-only (not synced to the messenger's other devices).
-- The message list is not virtualized; history is paged (40 messages per page).
+- Muting and "mark as unread" are braids-only (not synced to the messenger's
+  other devices).
+- Unread counts are counted by braids from the messages it knows (history
+  cache and loaded messages); a chat read elsewhere may count until synced.
 - Vim mode, start at login, packaging and signing are milestone M4.

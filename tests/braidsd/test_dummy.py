@@ -159,6 +159,39 @@ def main():
         check(len(joined) == 1 and joined[0]["system"] == "joined", "group event marked as system message")
         check(all(m["system"] == "" for m in full if m["text"] != "[Joined]"), "normal messages not system")
 
+        # unread counts: Kevin has two unread messages
+        kevin = wait_until(lambda: [c for c in d.call("chats.list") if c["id"] == "Kevin_0" and c["unreadCount"] == 2],
+                           "unread count of Kevin's chat")[0]
+        check(kevin["isUnread"] and kevin["unreadCount"] == 2, "unread count")
+        check(all(c["unreadCount"] == 0 for c in d.call("chats.list") if not c["isUnread"]), "read chats count 0")
+
+        # marked unread in braids until read
+        d.call("chats.markUnread", {"accountId": account_id, "chatId": group["id"]})
+        marked = d.wait_event("chat.updated", lambda p: p["id"] == group["id"] and p["isUnread"])
+        check(marked["unreadCount"] == 1, "chat marked unread")
+        last = d.call("messages.get", {"accountId": account_id, "chatId": group["id"], "limit": 1})["messages"][-1]
+        d.call("messages.markRead", {"accountId": account_id, "chatId": group["id"], "msgId": last["id"]})
+        d.wait_event("chat.updated", lambda p: p["id"] == group["id"] and not p["isUnread"])
+        check(True, "reading clears the unread mark")
+
+        # shared media: per chat and across all chats
+        img = os.path.join(confdir, "pic.png")
+        with open(img, "wb") as f:
+            f.write(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d"
+                                  "49444154789c6360000002000154a24f5d0000000049454e44ae426082"))
+        d.call("messages.send", {"accountId": account_id, "chatId": group["id"], "filePath": img})
+        d.call("messages.send", {"accountId": account_id, "chatId": group["id"], "text": "see https://example.org"})
+        d.wait_event("message.added", lambda p: p["text"] == "see https://example.org")
+        media = d.call("media.list", {"accountId": account_id, "chatId": group["id"], "kind": "media"})
+        check(len(media["items"]) == 1 and media["items"][0]["file"]["mimeType"] == "image/png"
+              and media["nextBefore"] == 0, "media.list finds the image")
+        links = d.call("media.list", {"kind": "links"})["items"]
+        check([m["text"] for m in links] == ["see https://example.org"], "media.list links across all chats")
+        check(d.call("media.list", {"accountId": account_id, "kind": "files"})["items"] == [], "no files")
+        expect_error(lambda: d.call("media.list", {"kind": "photos"}), -32602, "unknown media kind rejected")
+        paged = d.call("media.list", {"kind": "links", "limit": 1, "beforeTime": links[0]["time"]})
+        check(paged["items"] == [], "paging past the last item")
+
         # braids' own mute setting, kept across restarts
         check(account["capabilities"]["muteChat"], "mute capability")
         check(not group["isMuted"], "group not muted initially")

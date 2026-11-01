@@ -29,6 +29,7 @@ export interface Account {
   selfId: string;
   state: AccountState;
   error: string;
+  syncing: boolean; // the protocol is fetching / syncing
   capabilities: Capabilities;
 }
 
@@ -70,6 +71,7 @@ export interface Chat {
   isUnread: boolean;
   isUnreadMention: boolean;
   isMuted: boolean;
+  unreadCount: number; // received unread messages (at least 1 when isUnread)
   isPinned: boolean;
   isArchived: boolean;
   lastActivity: number;

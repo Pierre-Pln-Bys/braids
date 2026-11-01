@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <tuple>
 
 #include "fileutil.h"
 #include "log.h"
@@ -193,6 +194,17 @@ void ChatModel::LoadAccountState(const std::string& p_AccountId)
   if (!state.is_object() || !state.contains("muted") || !state["muted"].is_object()) return;
 
   AccountState& account = m_Accounts[p_AccountId];
+  if (state.contains("unread") && state["unread"].is_array())
+  {
+    for (const auto& chatId : state["unread"])
+    {
+      if (chatId.is_string())
+      {
+        account.markedUnread.insert(chatId.get<std::string>());
+      }
+    }
+  }
+
   for (auto& item : state["muted"].items())
   {
     if (item.value().is_boolean())
@@ -217,8 +229,208 @@ void ChatModel::SaveAccountState(const std::string& p_AccountId)
 
   // written to a temp file and moved, so a crash never leaves half a file
   const std::string path = dir + "/braids-chats.json";
-  FileUtil::WriteFile(path + ".tmp", json{ { "muted", muted } }.dump(2));
+  json unread = json::array();
+  for (const std::string& chatId : m_Accounts[p_AccountId].markedUnread)
+  {
+    unread.push_back(chatId);
+  }
+
+  FileUtil::WriteFile(path + ".tmp", json{ { "muted", muted }, { "unread", unread } }.dump(2));
   FileUtil::Move(path + ".tmp", path);
+}
+
+int ChatModel::UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo)
+{
+  if (!p_ChatInfo.isUnread && !p_Account.markedUnread.count(p_ChatInfo.id))
+  {
+    p_Account.cachedUnread.erase(p_ChatInfo.id); // read since
+    return 0;
+  }
+
+  // received unread messages after the last own or read one
+  int count = 0;
+  auto cit = p_Account.chats.find(p_ChatInfo.id);
+  if (cit != p_Account.chats.end())
+  {
+    int64_t readTime = 0;
+    for (const auto& message : cit->second.messages)
+    {
+      const ChatMessage& chatMessage = message.second;
+      if (chatMessage.isOutgoing || chatMessage.isRead)
+      {
+        readTime = std::max(readTime, chatMessage.timeSent);
+      }
+    }
+
+    for (const auto& message : cit->second.messages)
+    {
+      const ChatMessage& chatMessage = message.second;
+      if (!chatMessage.isOutgoing && !chatMessage.isRead && !chatMessage.isDeleted &&
+          (chatMessage.timeSent > readTime) && (chatMessage.timeSent != s_SponsoredTime))
+      {
+        ++count;
+      }
+    }
+  }
+
+  auto uit = p_Account.cachedUnread.find(p_ChatInfo.id);
+  if (uit != p_Account.cachedUnread.end())
+  {
+    count = std::max(count, uit->second);
+  }
+
+  // unread state without known messages (e.g. marked unread): one
+  return std::max(count, 1);
+}
+
+static bool HasLink(const std::string& p_Text)
+{
+  return (p_Text.find("://") != std::string::npos) || (p_Text.find("www.") != std::string::npos);
+}
+
+json ChatModel::GetMedia(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Kind,
+                         int64_t p_BeforeTime, int p_Limit)
+{
+  if ((p_Kind != "media") && (p_Kind != "files") && (p_Kind != "links"))
+  {
+    throw ApiException(ApiErrorInvalidParams, "kind must be media, files or links");
+  }
+
+  if (!p_ChatId.empty() && p_AccountId.empty())
+  {
+    throw ApiException(ApiErrorInvalidParams, "chatId needs accountId");
+  }
+
+  const bool links = (p_Kind == "links");
+  const int limit = std::max(1, std::min(p_Limit, 200));
+  const int64_t before = (p_BeforeTime > 0) ? p_BeforeTime : std::numeric_limits<int64_t>::max();
+  // candidates per account from the cache; media and files share the query
+  const int fetch = links ? limit : (limit * 3);
+
+  std::vector<std::string> accountIds;
+  if (!p_AccountId.empty())
+  {
+    GetAccountOrThrow(p_AccountId);
+    accountIds.push_back(p_AccountId);
+  }
+  else
+  {
+    for (const auto& account : m_Accounts)
+    {
+      accountIds.push_back(account.first);
+    }
+  }
+
+  struct Item
+  {
+    std::string accountId;
+    std::string chatId;
+    const ChatMessage* message;
+  };
+
+  // the oldest time all accounts were searched down to: older candidates
+  // are left to the next page so that pages do not skip any
+  int64_t cutoff = 0;
+  std::map<std::tuple<std::string, std::string, std::string>, Item> candidates;
+  for (const std::string& accountId : accountIds)
+  {
+    AccountState& account = m_Accounts[accountId];
+    std::vector<std::pair<std::string, ChatMessage>> cached =
+      MessageCache::FetchMediaSync(accountId, p_ChatId, links, before, fetch);
+    if ((int)cached.size() == fetch)
+    {
+      cutoff = std::max(cutoff, cached.back().second.timeSent);
+    }
+
+    for (auto& chatIdMessage : cached)
+    {
+      ChatState& chatState = account.chats[chatIdMessage.first];
+      const ChatMessage* chatMessage = nullptr;
+      auto mit = chatState.messages.find(chatIdMessage.second.id);
+      if (mit != chatState.messages.end())
+      {
+        chatMessage = &mit->second;
+      }
+      else
+      {
+        auto dit = chatState.detached.find(chatIdMessage.second.id);
+        if (dit == chatState.detached.end())
+        {
+          dit = chatState.detached.emplace(chatIdMessage.second.id, chatIdMessage.second).first;
+        }
+
+        chatMessage = &dit->second;
+      }
+
+      candidates[std::make_tuple(accountId, chatIdMessage.first, chatMessage->id)] =
+        Item{ accountId, chatIdMessage.first, chatMessage };
+    }
+
+    // loaded messages (newer than the cache, or protocols without it)
+    for (auto& chat : account.chats)
+    {
+      if (!p_ChatId.empty() && (chat.first != p_ChatId)) continue;
+
+      for (const auto& message : chat.second.messages)
+      {
+        const ChatMessage& chatMessage = message.second;
+        if ((chatMessage.timeSent >= before) || (chatMessage.timeSent == s_SponsoredTime)) continue;
+
+        candidates[std::make_tuple(accountId, chat.first, chatMessage.id)] = Item{ accountId, chat.first, &chatMessage };
+      }
+    }
+  }
+
+  std::vector<Item> items;
+  for (const auto& candidate : candidates)
+  {
+    const Item& item = candidate.second;
+    const ChatMessage& chatMessage = *item.message;
+    if (chatMessage.isDeleted || (chatMessage.timeSent < cutoff)) continue;
+
+    if (links)
+    {
+      if (!HasLink(chatMessage.text)) continue;
+    }
+    else
+    {
+      if (chatMessage.fileInfo.empty()) continue;
+
+      FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
+      const std::string mimeType = fileInfo.fileType.empty() ? GuessMimeType(fileInfo) : fileInfo.fileType;
+      const bool isMedia = StrUtil::StartsWith(mimeType, "image/") || StrUtil::StartsWith(mimeType, "video/");
+      if (isMedia != (p_Kind == "media")) continue;
+    }
+
+    items.push_back(item);
+  }
+
+  std::sort(items.begin(), items.end(), [](const Item& p_Lhs, const Item& p_Rhs)
+  {
+    return p_Lhs.message->timeSent > p_Rhs.message->timeSent;
+  });
+
+  // next page: older than the last item returned, or than the cutoff; 0: end
+  int64_t nextBefore = 0;
+  if ((int)items.size() > limit)
+  {
+    items.resize(limit);
+    nextBefore = items.back().message->timeSent;
+  }
+  else if (cutoff > 0)
+  {
+    nextBefore = cutoff;
+  }
+
+  json list = json::array();
+  for (const Item& item : items)
+  {
+    ChatMessage chatMessage = *item.message;
+    chatMessage.quotedId.clear(); // no quotes to fetch for these
+    list.push_back(MessageToJson(item.accountId, item.chatId, chatMessage));
+  }
+
+  return json{ { "items", list }, { "nextBefore", nextBefore } };
 }
 
 bool ChatModel::IsMuted(const AccountState& p_Account, const ChatInfo& p_ChatInfo) const
@@ -289,6 +501,18 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
         }
 
         account.connectTime = TimeUtil::GetCurrentTimeMSec();
+        if (connectNotify->success)
+        {
+          account.cachedUnread = MessageCache::GetUnreadCountsSync(accountId);
+          for (const auto& unread : account.cachedUnread)
+          {
+            if (account.chatInfos.count(unread.first))
+            {
+              MarkChatDirty(accountId, unread.first);
+            }
+          }
+        }
+
         Emit("account.connected", json{ { "accountId", accountId }, { "success", connectNotify->success } });
       }
       break;
@@ -414,9 +638,14 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
         std::shared_ptr<NewMessageFileNotify> newMessageFileNotify =
           std::static_pointer_cast<NewMessageFileNotify>(p_ServiceMessage);
         const std::string& chatId = newMessageFileNotify->chatId;
-        auto& messages = account.chats[chatId].messages;
-        auto mit = messages.find(newMessageFileNotify->msgId);
-        if (mit != messages.end())
+        ChatState& chatState = account.chats[chatId];
+        auto mit = chatState.messages.find(newMessageFileNotify->msgId);
+        if (mit == chatState.messages.end())
+        {
+          mit = chatState.detached.find(newMessageFileNotify->msgId);
+          if (mit == chatState.detached.end()) break;
+        }
+
         {
           // download updates may not repeat the type
           FileInfo newInfo = ProtocolUtil::FileInfoFromHex(newMessageFileNotify->fileInfo);
@@ -1178,6 +1407,18 @@ ChatMessage& ChatModel::GetMessageOrThrow(const std::string& p_AccountId, const 
   {
     auto mit = cit->second.messages.find(p_MsgId);
     if (mit != cit->second.messages.end()) return mit->second;
+
+    mit = cit->second.detached.find(p_MsgId);
+    if (mit != cit->second.detached.end()) return mit->second;
+  }
+
+  // an older message only in the cache (e.g. from media.list)
+  std::vector<ChatMessage> cached;
+  if (MessageCache::GetOneMessage(p_AccountId, p_ChatId, p_MsgId, cached))
+  {
+    ChatMessage& chatMessage = account.chats[p_ChatId].detached[p_MsgId];
+    chatMessage = cached.front();
+    return chatMessage;
   }
 
   throw ApiException(ApiErrorUnknownMessage, "unknown message " + p_MsgId);
@@ -1435,6 +1676,14 @@ void ChatModel::MarkRead(const std::string& p_AccountId, const std::string& p_Ch
 {
   const ChatMessage& target = GetMessageOrThrow(p_AccountId, p_ChatId, p_MsgId);
   const int64_t targetTime = target.timeSent;
+
+  AccountState& account = m_Accounts[p_AccountId];
+  if (account.markedUnread.erase(p_ChatId) > 0)
+  {
+    SaveAccountState(p_AccountId);
+    MarkChatDirty(p_AccountId, p_ChatId);
+    FlushDirtyChats();
+  }
   const bool markReadEveryView = HasFeature(p_AccountId, FeatureMarkReadEveryView);
   const bool perMessage = HasPerMessageReadReceipts(StrUtil::GetProtocolName(p_AccountId));
 
@@ -1695,6 +1944,20 @@ void ChatModel::MuteChat(const std::string& p_AccountId, const std::string& p_Ch
   FlushDirtyChats();
 }
 
+void ChatModel::MarkUnread(const std::string& p_AccountId, const std::string& p_ChatId)
+{
+  AccountState& account = GetAccountOrThrow(p_AccountId);
+  if (!account.chatInfos.count(p_ChatId))
+  {
+    throw ApiException(ApiErrorUnknownChat, "unknown chat");
+  }
+
+  account.markedUnread.insert(p_ChatId);
+  SaveAccountState(p_AccountId);
+  MarkChatDirty(p_AccountId, p_ChatId);
+  FlushDirtyChats();
+}
+
 void ChatModel::DeleteChat(const std::string& p_AccountId, const std::string& p_ChatId)
 {
   GetAccountOrThrow(p_AccountId);
@@ -1822,8 +2085,9 @@ json ChatModel::ChatToJson(const std::string& p_AccountId, const ChatInfo& p_Cha
     { "id", p_ChatInfo.id },
     { "name", GetContactName(p_AccountId, p_ChatInfo.id) },
     { "isGroup", isGroup },
-    { "isUnread", p_ChatInfo.isUnread },
+    { "isUnread", p_ChatInfo.isUnread || m_Accounts[p_AccountId].markedUnread.count(p_ChatInfo.id) },
     { "isUnreadMention", p_ChatInfo.isUnreadMention },
+    { "unreadCount", UnreadCount(m_Accounts[p_AccountId], p_ChatInfo) },
     { "isMuted", IsMuted(m_Accounts[p_AccountId], p_ChatInfo) },
     { "isPinned", p_ChatInfo.isPinned },
     { "isArchived", p_ChatInfo.isArchived },

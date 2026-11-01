@@ -15,6 +15,7 @@
   import { linkify } from '../lib/format';
   import { protocolMeta } from '../lib/protocols';
   import { fileMime, fileReady, splitKey, store } from '../lib/store.svelte';
+  import type { Message } from '../lib/types';
   import { ui } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
   import ProtocolBadge from './ProtocolBadge.svelte';
@@ -26,9 +27,21 @@
   const account = $derived(store.accounts[accountId]);
   const membersLoaded = $derived(store.members[chatKey] !== undefined);
   const members = $derived(store.members[chatKey] ?? []);
-  const images = $derived(
-    (store.messages[chatKey]?.items ?? []).filter((m) => fileReady(m.file) && fileMime(m.file).startsWith('image/')).slice(-9).reverse(),
-  );
+  // the newest shared images (also older than the loaded history), again
+  // when images are added to the loaded history
+  let shared = $state<Message[]>([]);
+  const loadedImages = $derived((store.messages[chatKey]?.items ?? []).filter((m) => fileReady(m.file) && fileMime(m.file).startsWith('image/')).length);
+  $effect(() => {
+    const key = chatKey;
+    void loadedImages;
+    const [a, c] = splitKey(key);
+    api.call('media.list', { accountId: a, chatId: c, kind: 'media', limit: 30 })
+      .then((r) => {
+        if (key === chatKey) shared = (r.items as Message[]).filter((m) => fileReady(m.file) && fileMime(m.file).startsWith('image/')).slice(0, 9);
+      })
+      .catch(() => {});
+  });
+  const images = $derived(shared);
   const contact = $derived(chat && !chat.isGroup ? store.contacts[accountId]?.[chatId] : undefined);
   const description = $derived(chat ? store.description(accountId, chatId).trim() : '');
   const longDescription = $derived(description.length > 220 || description.split('\n').length > 4);
@@ -124,7 +137,7 @@
       {/if}
 
       {#if images.length}
-        <div class="section">Shared media</div>
+        <div class="section media-head">Shared media<button class="link" onclick={() => (ui.media = { chatKey })}>Show all</button></div>
         <div class="media">
           {#each images as m (m.id)}
             <button onclick={() => (ui.lightbox = { src: api.fileUrl(m.file!.path), name: m.file!.name, path: m.file!.path })} aria-label="Open {m.file!.name}">
@@ -169,6 +182,8 @@
   .members { display: flex; flex-direction: column; gap: 2px; margin-top: -6px; }
   .member { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
   .member-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .media-head { display: flex; align-items: center; justify-content: space-between; }
+  .media-head .link { border: 0; background: none; padding: 0; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--accent); }
   .media { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: -6px; }
   .media button { border: 0; padding: 0; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--skeleton); }
   .media img { width: 100%; height: 100%; object-fit: cover; display: block; }

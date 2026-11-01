@@ -107,9 +107,11 @@ Scheduled-later features are in `doc/BACKLOG.md`.
 - Telegram, WhatsApp and Signal login flows through braidsd are implemented
   but not yet verified with real accounts (needs the maintainer; use
   `utils/braids-console`).
-- App: no unread counts (protocols report unread state only), message list
-  not virtualized; vim mode is M4. Muting is braids' own setting
-  (`chats.mute`, kept in `<profile>/braids-chats.json`), not synced to the
-  messenger. Group events reach braidsd as bracketed texts (`[Joined]`);
+- App: vim mode is M4. Muting and "mark unread" are braids' own settings
+  (`chats.mute`, `chats.markUnread`, kept in `<profile>/braids-chats.json`),
+  not synced to the messenger. Unread counts are computed by braidsd
+  (`ChatModel::UnreadCount`, history cache at connect + loaded messages). The
+  conversation renders a window of the loaded messages (`Conversation.svelte`,
+  `WINDOW`/`REVEAL`). Group events reach braidsd as bracketed texts (`[Joined]`);
   `SystemText()` in `chatmodel.cpp` turns them into the message's `system`
   phrase.

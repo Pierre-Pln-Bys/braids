@@ -213,7 +213,85 @@ try {
   await page.waitForFunction((n) => document.querySelectorAll('.msg.own .image').length > n, imagesBefore);
   check((await page.locator('.msg.own', { has: page.locator('.image') }).last().textContent()).includes('Forwarded from me'),
     'forwarded image with origin line');
-  fs.rmSync(png, { force: true });
+
+  // shared media: across all chats, images and links, "Show in chat"
+  await composer.fill('docs at https://example.org/braids');
+  await composer.press('Enter');
+  await page.getByRole('button', { name: 'Shared media' }).click();
+  await page.locator('[role=dialog] .thumb img').first().waitFor();
+  check(await page.locator('[role=dialog] .thumb').count() >= 2, 'shared media lists the images of all chats');
+  await shot('shared-media');
+  await page.getByRole('tab', { name: 'Links' }).click();
+  await page.locator('[role=dialog] .row', { hasText: 'example.org' }).waitFor();
+  check(true, 'shared links listed');
+  await shot('shared-links');
+  await page.getByRole('tab', { name: 'Files' }).click();
+  await page.getByText('No files yet.').waitFor();
+  check(true, 'no files');
+  await page.getByRole('tab', { name: 'Media' }).click();
+  await page.locator('[role=dialog] .tile').first().hover();
+  await page.locator('[role=dialog] .goto').first().click();
+  await page.waitForFunction(() => !document.querySelector('[aria-labelledby=media-title]'));
+  check(true, 'show in chat closes the dialog');
+  await page.keyboard.press('Control+i');
+  await page.locator('.info .media img').first().waitFor();
+  await page.getByRole('button', { name: 'Show all' }).click();
+  check((await page.locator('#media-title').textContent()).startsWith('Shared in'), 'chat media from the info panel');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+i');
+
+  // unread message counts
+  const kevinRow = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Kevin$/ }) });
+  check((await kevinRow.locator('.unread-count').textContent()) === '2', 'unread message count in the list');
+  check((await page.getByRole('button', { name: /All chats/ }).locator('.count').textContent()) === '2', 'folder counts messages');
+
+  // mark as unread: a count of one until opened
+  const pamRow2 = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Pam$/ }) });
+  await pamRow2.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Mark as unread' }).click();
+  await pamRow2.locator('.unread-count').waitFor();
+  check((await pamRow2.locator('.unread-count').textContent()) === '1', 'chat marked unread');
+  await pamRow2.click();
+  await pamRow2.locator('.unread-count').waitFor({ state: 'detached' });
+  check(true, 'opening clears the unread mark');
+
+  // loading / outdated indicator: network gone and back
+  await page.context().setOffline(true);
+  await page.locator('.chatlist .sync', { hasText: 'Offline' }).waitFor();
+  check(true, 'offline shown');
+  await page.context().setOffline(false);
+  await page.locator('.chatlist .sync', { hasText: 'Updating' }).waitFor();
+  await shot('updating');
+  await page.locator('.chatlist .sync').waitFor({ state: 'detached', timeout: 15000 });
+  check(true, 'updating shown until the accounts caught up');
+
+  // long chats: only a window of messages is rendered, more while scrolling up
+  await page.evaluate(async () => {
+    const call = async (method, params) => (await (await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method, params }) })).json()).result;
+    const accounts = await call('accounts.list', {});
+    for (let i = 1; i <= 200; i++) await call('messages.send', { accountId: accounts[0].accountId, chatId: 'Oscar_0', text: `bulk ${i}` });
+  });
+  await page.getByRole('option', { name: /Oscar/ }).click();
+  await page.locator('.msg', { hasText: 'bulk 200' }).waitFor();
+  const count = () => page.locator('.messages [data-msg-id]').count();
+  // load the whole history by scrolling up
+  for (let i = 0; i < 40 && (await count()) <= 200; i++) {
+    await page.locator('.messages').evaluate((el) => { el.scrollTop = 0; });
+    await page.waitForTimeout(200);
+  }
+  const total = await count();
+  check(total > 200, `whole history rendered after scrolling up (${total})`);
+  // back at the bottom: only the newest are rendered
+  await page.locator('.messages').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await page.waitForFunction(() => document.querySelectorAll('.messages [data-msg-id]').length <= 150);
+  const windowed = await count();
+  check(windowed === 150, `back at the bottom: window of ${windowed} messages`);
+  // scrolling up reveals loaded messages, keeping the view in place
+  await page.locator('.messages').evaluate((el) => { el.scrollTop = 0; });
+  await page.waitForFunction((n) => document.querySelectorAll('.messages [data-msg-id]').length > n, windowed);
+  check(await count() === Math.min(total, windowed + 60), 'scrolling up reveals up to 60 more');
+  await page.waitForTimeout(100);
+  check(await page.locator('.messages').evaluate((el) => el.scrollTop > 200), 'view kept in place while revealing');
   await page.getByRole('option', { name: /The Office/ }).click();
 
   // groups have a rounded-square avatar, people a round one
@@ -385,6 +463,7 @@ try {
   daemon.kill('SIGTERM');
   await new Promise((r) => daemon.once('exit', r));
   fs.rmSync(confdir, { recursive: true, force: true });
+  fs.rmSync(path.join(confdir, '..', `braids-ui-${process.pid}.png`), { force: true });
 }
 
 console.log(failures ? `${failures} failed` : 'all tests passed');

@@ -67,10 +67,15 @@ public:
   json GetAvatars(const std::string& p_AccountId, const std::vector<std::string>& p_Ids);
   json GetDescriptions(const std::string& p_AccountId, const std::vector<std::string>& p_Ids);
   void JoinChat(const std::string& p_AccountId, const std::string& p_Link);
+  // shared media of a chat, or of all chats (p_AccountId and/or p_ChatId
+  // empty); p_Kind "media", "files" or "links"
+  json GetMedia(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Kind,
+                int64_t p_BeforeTime, int p_Limit);
   void CreateChat(const std::string& p_AccountId, const std::string& p_UserId);
   void PinChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsPinned);
   void ArchiveChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsArchived);
   void MuteChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsMuted);
+  void MarkUnread(const std::string& p_AccountId, const std::string& p_ChatId);
   void DeleteChat(const std::string& p_AccountId, const std::string& p_ChatId);
   void SetCurrentChat(const std::string& p_AccountId, const std::string& p_ChatId);
   void FindMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
@@ -83,6 +88,9 @@ private:
   struct ChatState
   {
     std::unordered_map<std::string, ChatMessage> messages;
+    // older messages read from the cache for media.list (not part of the
+    // loaded history, which must stay contiguous)
+    std::unordered_map<std::string, ChatMessage> detached;
     bool previewRequested = false;
   };
 
@@ -103,6 +111,11 @@ private:
     // braids' own mute setting per chat, overrides the messenger's (kept in
     // <profile>/braids-chats.json)
     std::unordered_map<std::string, bool> muted;
+    // chats marked unread in braids, until read (kept with the mute settings)
+    std::unordered_set<std::string> markedUnread;
+    // unread counts from the cache at connect, for chats whose unread
+    // messages are not loaded
+    std::map<std::string, int> cachedUnread;
     int64_t connectTime = 0;
   };
 
@@ -148,6 +161,7 @@ private:
   std::map<std::string, std::string> ParseMentions(const std::string& p_AccountId, const std::string& p_ChatId,
                                                    const std::string& p_Text);
 
+  int UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo);
   bool IsMuted(const AccountState& p_Account, const ChatInfo& p_ChatInfo) const;
   void LoadAccountState(const std::string& p_AccountId);
   void SaveAccountState(const std::string& p_AccountId);

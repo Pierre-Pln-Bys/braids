@@ -261,6 +261,14 @@ def main():
         check(fwd2["msgtype"] == "m.image" and fwd2.get("file_size", 0) > 0, "forwarded image with caption arrives")
         check("look at this" in (fwd2.get("body") or "") + (fwd2.get("html") or ""), "caption sent with the image")
 
+        # shared media of the room: the received image (and the forwarded ones)
+        def room_media():
+            items = d.call("media.list", {"accountId": account_id, "chatId": room, "kind": "media"})["items"]
+            return img in [m["id"] for m in items] and items
+        media = wait_until(room_media, "media.list has the received image")
+        check(all(m["file"]["mimeType"].startswith("image/") for m in media), "media.list on Matrix")
+        check([m["time"] for m in media] == sorted((m["time"] for m in media), reverse=True), "media newest first")
+
         # reply from bob: matrix sends only the quoted id, the text comes from the model
         quoted_id = page["messages"][-3]["id"]
         rep = bob_peer.cmd(f"reply {room} {quoted_id} answer to history")["event"]

@@ -39,6 +39,8 @@ class Ui {
   reply = $state<Message | null>(null);
   edit = $state<Message | null>(null);
   forward = $state<Message | null>(null); // message being forwarded (dialog open)
+  media = $state<{ chatKey: string } | null>(null); // shared media dialog: of a chat, or all ('')
+  jumpRequest = $state<{ chatKey: string; msgId: string } | null>(null); // scroll the conversation to a message
   highlightId = $state('');
   dropHover = $state(false);
   focusComposer = $state(0); // bump to focus

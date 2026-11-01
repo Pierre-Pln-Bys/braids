@@ -86,6 +86,8 @@ class Store {
   toasts = $state<Toast[]>([]);
   wizardSetupId = $state(''); // open add-account wizard ('' closed, 'new' choosing protocol)
   focused = $state(true);
+  networkOnline = $state(true);
+  staleSince = $state(0); // after sleep or a network outage, until the accounts caught up (ms, 0: fresh)
 
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private avatarAsked = new Set<string>();
@@ -117,8 +119,17 @@ class Store {
       .sort((a, b) => b.lastActivity - a.lastActivity);
   }
 
-  // unread chats per folder; muted ones count only when mentioned
+  // unread messages of a chat (protocols that report only the state: 1)
+  chatUnread(c: Chat): number {
+    return c.isUnread ? Math.max(1, c.unreadCount ?? 1) : 0;
+  }
+
+  // unread messages per folder; muted chats count only when mentioned
   unreadCount(filter: Filter): number {
+    return this.unreadChats(filter).reduce((n, c) => n + this.chatUnread(c), 0);
+  }
+
+  private unreadChats(filter: Filter): Chat[] {
     return Object.values(this.chats).filter((c) => {
       if (!c.isUnread || !this.accounts[c.accountId]) return false;
       if (c.isMuted && !c.isUnreadMention) return false;
@@ -128,13 +139,17 @@ class Store {
       if (filter.kind === 'favorites') return category === 'favorite';
       if (filter.kind === 'account') return c.accountId === filter.accountId;
       return true;
-    }).length;
+    });
   }
 
-  // unread chats for tray and dock: not archived, not muted (unless mentioned)
+  // unread messages for tray and dock: not archived, not muted (unless mentioned)
   get badgeCount(): number {
-    return Object.values(this.chats).filter((c) => c.isUnread && this.category(c) !== 'archived' && (!c.isMuted || c.isUnreadMention) && this.accounts[c.accountId]).length;
+    return this.unreadCount({ kind: 'all' });
   }
+
+  // called with every new or changed message, also of chats not loaded
+  // (e.g. downloads started from the shared media dialog)
+  messageListeners = new Set<(m: Message) => void>();
 
   // Moves a chat to a category; archiving is mirrored to the messenger where it
   // supports archives, so other devices see it too.
@@ -284,7 +299,51 @@ class Store {
 
   // ---- connection and sync ----
 
+  // What the shown state is up to, for the indicator over the chat list:
+  // '' current, 'offline' no network, 'updating' connecting, syncing or
+  // possibly outdated (after the computer slept or the network came back).
+  get syncStatus(): '' | 'offline' | 'updating' {
+    if (!this.networkOnline) return 'offline';
+    const accounts = Object.values(this.accounts);
+    if (this.staleSince || accounts.some((a) => a.state === 'connecting' || a.syncing)) return 'updating';
+    return '';
+  }
+
+  // Marks the state as possibly outdated; cleared once every account is
+  // online and done syncing (at the earliest after a few seconds, so that a
+  // protocol noticing a dead connection late is caught; at the latest after
+  // a minute).
+  markStale() {
+    const since = Date.now();
+    this.staleSince = since;
+    const check = () => {
+      if (this.staleSince !== since) return;
+      const settled = Object.values(this.accounts).every((a) => a.state !== 'connecting' && !a.syncing);
+      const age = Date.now() - since;
+      if ((settled && this.networkOnline && age >= 4000) || age >= 60000) this.staleSince = 0;
+      else setTimeout(check, 1000);
+    };
+    setTimeout(check, 1000);
+  }
+
+  private watchWake() {
+    // timers stop while the computer sleeps: a long gap means it woke up
+    let last = Date.now();
+    setInterval(() => {
+      const now = Date.now();
+      if (now - last > 30000) this.markStale();
+      last = now;
+    }, 5000);
+    this.networkOnline = navigator.onLine;
+    window.addEventListener('offline', () => (this.networkOnline = false));
+    window.addEventListener('online', () => {
+      this.networkOnline = true;
+      this.markStale();
+    });
+  }
+
   async start() {
+    this.watchWake();
     window.addEventListener('focus', () => {
       this.focused = true;
       this.markCurrentRead();
@@ -384,6 +443,7 @@ class Store {
         if (a) {
           a.state = p.state;
           a.error = p.error ?? '';
+          a.syncing = !!p.syncing;
         }
         break;
       }
@@ -431,6 +491,7 @@ class Store {
       case 'message.added':
       case 'message.updated':
         this.upsertMessage(p as Message);
+        for (const listener of this.messageListeners) listener(p as Message);
         break;
       case 'message.removed': {
         const list = this.messages[chatKey(p.accountId, p.chatId)];

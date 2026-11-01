@@ -3,12 +3,8 @@ braids — Backlog
 
 Agreed features not scheduled in a milestone yet. Newest first.
 
-- **Shared media**: per chat (images, files, links in the info panel) and
-  maybe a global view across all chats and accounts.
-- **Loading / outdated indicator**: show when chats are being fetched and when
-  the shown state may be stale (e.g. after the computer slept, until the
-  protocols have reconnected and synced).
-- **Optimized message lists**: virtualized rendering for very long chats.
+- **Sync mute and "mark unread" with the messengers**: both are braids-only
+  for now (Telegram, WhatsApp and Matrix have APIs for them, Signal partly).
 - **Web version**: braids in the browser. The UI already runs in a browser
   (Vite dev bridge); a real web version needs braidsd on a server the user
   runs (it holds the sessions and keys), an authenticated WebSocket transport
