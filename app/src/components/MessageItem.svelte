@@ -17,6 +17,7 @@
   import type { Account, Chat, Message } from '../lib/types';
   import { openLightbox, ui, type MenuItem } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
+  import VoicePlayer from './VoicePlayer.svelte';
 
   let {
     m,
@@ -42,6 +43,7 @@
   const mime = $derived(fileMime(m.file));
   const isImage = $derived(mime.startsWith('image/'));
   const isVideo = $derived(mime.startsWith('video/') && mime !== 'video/webm');
+  const isAudio = $derived(mime.startsWith('audio/'));
   const ready = $derived(fileReady(m.file));
   const emojiOnly = $derived(!m.file && !m.quoted && !m.isDeleted && isOnlyEmoji(m.text));
   const html = $derived(m.isDeleted ? '' : renderText(m.text, m.mentions, account.selfId));
@@ -63,9 +65,9 @@
     return { show: true, ok: true, reason: '' };
   });
 
-  // images are fetched right away, other files on request
+  // images, videos and voice messages are fetched right away, other files on request
   $effect(() => {
-    if ((isImage || isVideo) && m.file?.status === 'notDownloaded' && !requestedDownload) {
+    if ((isImage || isVideo || isAudio) && m.file?.status === 'notDownloaded' && !requestedDownload) {
       requestedDownload = true;
       download();
     }
@@ -249,6 +251,8 @@
           <button class="image" onclick={openFile} aria-label="Open image {m.file.name}">
             <img src={api.fileUrl(m.file.path)} alt={m.file.name} loading="lazy" />
           </button>
+        {:else if isAudio}
+          <VoicePlayer path={ready ? m.file.path : ''} id={m.id} status={m.file.status} onDownload={download} />
         {:else if isVideo && ready}
           <!-- svelte-ignore a11y_media_has_caption -->
           <video class="video" src={api.fileUrl(m.file.path)} controls preload="metadata"></video>

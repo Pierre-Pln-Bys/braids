@@ -235,6 +235,34 @@ try {
   check((await page.locator('.msg.own', { has: page.locator('.image') }).last().textContent()).includes('Forwarded from me'),
     'forwarded image with origin line');
 
+  // voice messages: inline player with play / pause and time
+  const wav = path.join(confdir, '..', `braids-ui-${process.pid}.wav`);
+  {
+    const rate = 8000;
+    const samples = rate; // 1 s
+    const buf = Buffer.alloc(44 + samples * 2);
+    buf.write('RIFF', 0); buf.writeUInt32LE(36 + samples * 2, 4); buf.write('WAVE', 8); buf.write('fmt ', 12);
+    buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(rate, 24);
+    buf.writeUInt32LE(rate * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(samples * 2, 40);
+    for (let i = 0; i < samples; i++) buf.writeInt16LE(Math.round(Math.sin((i * 2 * Math.PI * 440) / rate) * 8000), 44 + i * 2);
+    fs.writeFileSync(wav, buf);
+  }
+  await page.evaluate(async (filePath) => {
+    const accounts = await (await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method: 'accounts.list' }) })).json();
+    await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method: 'messages.send', params: { accountId: accounts.result[0].accountId, chatId: 'Michael_0', filePath } }) });
+  }, wav);
+  const voice = page.locator('.msg .voice').last();
+  await voice.waitFor();
+  await page.waitForFunction(() => document.querySelector('.msg:last-of-type .voice .time, .voice .time')?.textContent === '0:01', null, { timeout: 10000 }).catch(() => {});
+  check((await voice.locator('.time').textContent()) === '0:01', 'voice message shows its duration');
+  await voice.getByRole('button', { name: 'Play', exact: true }).click();
+  await voice.getByRole('button', { name: 'Pause' }).waitFor();
+  check(true, 'voice message plays');
+  await voice.getByRole('button', { name: 'Playback speed' }).click();
+  check((await voice.getByRole('button', { name: 'Playback speed' }).textContent()) === '1.5×', 'playback speed');
+  await voice.getByRole('button', { name: 'Play', exact: true }).waitFor({ timeout: 5000 });
+  check(true, 'voice message ends');
+
   // shared media: across all chats, images and links, "Show in chat"
   await composer.fill('docs at https://example.org/braids');
   await composer.press('Enter');
@@ -247,8 +275,8 @@ try {
   check(true, 'shared links listed');
   await shot('shared-links');
   await page.getByRole('tab', { name: 'Files' }).click();
-  await page.getByText('No files yet.').waitFor();
-  check(true, 'no files');
+  await page.locator('[role=dialog] .row', { hasText: '.wav' }).waitFor();
+  check(true, 'files tab lists the audio file');
   await page.getByRole('tab', { name: 'Media' }).click();
   await page.locator('[role=dialog] .tile').first().hover();
   await page.locator('[role=dialog] .goto').first().click();
@@ -525,6 +553,7 @@ try {
   await new Promise((r) => daemon.once('exit', r));
   fs.rmSync(confdir, { recursive: true, force: true });
   fs.rmSync(path.join(confdir, '..', `braids-ui-${process.pid}.png`), { force: true });
+  fs.rmSync(path.join(confdir, '..', `braids-ui-${process.pid}.wav`), { force: true });
 }
 
 console.log(failures ? `${failures} failed` : 'all tests passed');
