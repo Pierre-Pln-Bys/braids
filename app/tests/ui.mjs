@@ -203,6 +203,20 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll('.msg .image img')].some((img) => img.naturalWidth > 0));
   check(true, 'sent image shown inline');
 
+  // a pasted photo is previewed as a small tile before sending
+  await page.evaluate(async () => {
+    const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'holiday.png', { type: 'image/png' }));
+    document.querySelector('textarea[aria-label=Message]').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForFunction(() => [...document.querySelectorAll('.composer .thumb img')].some((img) => img.naturalWidth > 0));
+  check(true, 'attached photo previewed');
+  await shot('attachment-preview');
+  await page.locator('.composer .thumb .remove').click();
+  check(await page.locator('.composer .thumb').count() === 0, 'preview removed with the attachment');
+
   // forwarding an image keeps the image and adds the origin line
   const images = () => page.locator('.msg.own .image').count();
   const imagesBefore = await images();
@@ -243,7 +257,7 @@ try {
   // unread message counts
   const kevinRow = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Kevin$/ }) });
   check((await kevinRow.locator('.unread-count').textContent()) === '2', 'unread message count in the list');
-  check((await page.getByRole('button', { name: /All chats/ }).locator('.count').textContent()) === '2', 'folder counts messages');
+  check((await page.getByRole('button', { name: /All chats/ }).locator('.count').textContent()) === '1', 'folder counts chats, not messages');
 
   // mark as unread: a count of one until opened
   const pamRow2 = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Pam$/ }) });

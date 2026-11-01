@@ -9,7 +9,7 @@
   emoji, Enter to send. Drafts are kept per chat.
 -->
 <script lang="ts">
-  import { File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, X } from '@lucide/svelte';
+  import { File as FileIcon, Paperclip, Pencil, Play, Reply, SendHorizontal, Smile, X } from '@lucide/svelte';
   import { tick } from 'svelte';
   import * as api from '../lib/api';
   import { editLastOwnMessage } from '../lib/actions';
@@ -25,6 +25,16 @@
 
   let text = $state('');
   let attachments = $state<string[]>([]);
+  let broken = $state<Record<string, boolean>>({}); // previews that could not be shown
+
+  // photos and videos are previewed as small tiles, other files as chips
+  function previewKind(path: string): 'image' | 'video' | '' {
+    const ext = path.split('.').pop()?.toLowerCase() ?? '';
+    if (broken[path]) return '';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'jfif'].includes(ext)) return 'image';
+    if (['mp4', 'm4v', 'webm', 'mov', 'mkv', 'ogv'].includes(ext)) return 'video';
+    return '';
+  }
   let textarea: HTMLTextAreaElement | undefined = $state();
   let emojiOpen = $state(false);
   let sending = $state(false);
@@ -275,12 +285,26 @@
 
   {#if attachments.length}
     <div class="attachments">
-      {#each attachments as path, i}
-        <span class="att">
-          <FileIcon size={14} />
-          <span class="att-name">{baseName(path)}</span>
-          <button class="icon-btn sm" aria-label="Remove attachment" onclick={() => attachments.splice(i, 1)}><X size={14} /></button>
-        </span>
+      {#each attachments as path, i (path + i)}
+        {@const kind = previewKind(path)}
+        {#if kind}
+          <span class="thumb" title={baseName(path)}>
+            {#if kind === 'image'}
+              <img src={api.fileUrl(path)} alt={baseName(path)} onerror={() => (broken[path] = true)} />
+            {:else}
+              <!-- the first frame -->
+              <video src={`${api.fileUrl(path)}#t=0.1`} preload="metadata" muted onerror={() => (broken[path] = true)}></video>
+              <span class="play"><Play size={14} fill="currentColor" /></span>
+            {/if}
+            <button class="remove" aria-label="Remove attachment" onclick={() => attachments.splice(i, 1)}><X size={12} strokeWidth={2.5} /></button>
+          </span>
+        {:else}
+          <span class="att">
+            <FileIcon size={14} />
+            <span class="att-name">{baseName(path)}</span>
+            <button class="icon-btn sm" aria-label="Remove attachment" onclick={() => attachments.splice(i, 1)}><X size={14} /></button>
+          </span>
+        {/if}
       {/each}
     </div>
   {/if}
@@ -333,7 +357,18 @@
   .ctx-body { flex: 1; min-width: 0; border-left: 3px solid var(--c); padding-left: 8px; }
   .ctx-title { font-size: 12px; font-weight: 650; color: var(--c); }
   .ctx-text { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0 56px; }
+  .attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px 0 56px; }
+  .thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: var(--skeleton); border: 1px solid var(--border); flex-shrink: 0; }
+  .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb .play {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 13px;
+    display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 0.55); color: #fff; pointer-events: none;
+  }
+  .thumb .remove {
+    position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 10px; border: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 0.6); color: #fff;
+  }
+  .thumb .remove:hover { background: rgb(0 0 0 / 0.8); }
   .att { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 2px 0 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; max-width: 260px; }
   .att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row { display: flex; align-items: flex-end; gap: 6px; padding: 10px 12px 12px; }

@@ -69,7 +69,7 @@ fn set_badge(app: AppHandle, state: State<'_, AppState>, count: u32) {
         let _ = window.set_title(&if count > 0 { format!("braids ({count})") } else { "braids".into() });
     }
     if let Some(tray) = app.tray_by_id("main") {
-        let tip = if count > 0 { format!("braids — {count} unread") } else { "braids".into() };
+        let tip = match count { 0 => "braids".into(), 1 => "braids — 1 unread chat".into(), _ => format!("braids — {count} unread chats") };
         let _ = tray.set_tooltip(Some(&tip));
         let level = u64::from(count.min(3));
         if state.tray_level.swap(level, Ordering::SeqCst) != level {

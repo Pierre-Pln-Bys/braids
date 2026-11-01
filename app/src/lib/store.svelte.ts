@@ -124,9 +124,10 @@ class Store {
     return c.isUnread ? Math.max(1, c.unreadCount ?? 1) : 0;
   }
 
-  // unread messages per folder; muted chats count only when mentioned
+  // unread chats per folder (each counts once, however many messages);
+  // muted chats count only when mentioned
   unreadCount(filter: Filter): number {
-    return this.unreadChats(filter).reduce((n, c) => n + this.chatUnread(c), 0);
+    return this.unreadChats(filter).length;
   }
 
   private unreadChats(filter: Filter): Chat[] {
@@ -142,7 +143,7 @@ class Store {
     });
   }
 
-  // unread messages for tray and dock: not archived, not muted (unless mentioned)
+  // unread chats for tray and dock: not archived, not muted (unless mentioned)
   get badgeCount(): number {
     return this.unreadCount({ kind: 'all' });
   }
