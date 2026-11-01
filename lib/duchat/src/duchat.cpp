@@ -62,6 +62,15 @@ std::string DuChat::GetSelfId() const
   return "Stanley_0";
 }
 
+int DuChat::ShowcasePersona() const
+{
+  const size_t pos = m_ProfileId.find("_+99");
+  if ((pos == std::string::npos) || m_ProfileId.empty()) return 0;
+
+  const char last = m_ProfileId.back();
+  return ((last >= '1') && (last <= '4')) ? (last - '0') : 0;
+}
+
 std::string DuChat::GetProfileDisplayName() const
 {
   static std::string profileDisplayName = "";
@@ -312,15 +321,33 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         std::reverse(groupMessages.begin(), groupMessages.end());
 
         int64_t t = 1237922000;
-        s_Messages.clear();
         newChatsNotify->chatInfos.clear();
 
+        // showcase accounts (phone +99...<n>, for website screenshots) each
+        // get their share of the chats; others get all
+        const int persona = ShowcasePersona();
+        const auto mine = [persona](int p_Index) { return (persona == 0) || ((p_Index % 4) == (persona - 1)); };
+
         // Individual chats
+        int index = -1;
         for (auto& message : messages)
         {
+          ++index;
           std::string name = message.first;
           std::string text = message.second;
           std::string id = name + "_0";
+          if (!mine(index))
+          {
+            // the name is known in every account (group senders)
+            ContactInfo contactInfo;
+            contactInfo.id = id;
+            contactInfo.name = name;
+            newContactsNotify->contactInfos.push_back(contactInfo);
+            t = t - 100;
+            continue;
+          }
+
+          s_Messages[id].clear();
           // Kevin: two unread messages, for unread counts
           bool isUnread = (name == "Kevin");
 
@@ -367,7 +394,9 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         }
 
         // Group chat
+        if (mine(0))
         {
+          s_Messages[s_GroupId].clear();
           t = 1237962000;
           ChatInfo chatInfo;
           chatInfo.id = s_GroupId;
@@ -407,7 +436,9 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         }
 
         // Party Planning: read messages, then an unread group event
+        if (mine(2))
         {
+          s_Messages[s_PartyId].clear();
           ChatInfo chatInfo;
           chatInfo.id = s_PartyId;
           chatInfo.lastMessageTime = (1237900000LL * 1000);
