@@ -128,26 +128,25 @@ async function saveClip(page, name, selectors, margin = 24) {
 
 await session('light', async (page) => {
   await save(page, 'inbox-light');
+});
+
+await session('dark', async (page) => {
+  await save(page, 'inbox-dark');
   // forward anywhere: a Telegram group message to a chat of another messenger
   await page.locator('.msg:not(.own)', { hasText: 'storm your village' }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Forward…' }).click();
   await page.locator('[role=dialog][aria-labelledby=forward-title] .target').nth(5).waitFor();
-  // short, about as high as the text next to it: the title and one chat of
-  // each messenger
-  await page.addStyleTag({ content: '[aria-labelledby=forward-title] :is(.preview, .origin, .search, .target:nth-of-type(n+6)) { display: none !important; }' });
+  // short: three chats, of three messengers (Telegram, WhatsApp, Signal)
+  await page.addStyleTag({ content: '[aria-labelledby=forward-title] .target:is(:nth-of-type(2), :nth-of-type(n+5)) { display: none !important; }' });
   await page.waitForTimeout(400);
-  await saveClip(page, 'forward-light', ['[role=dialog][aria-labelledby=forward-title]'], 0);
+  await saveClip(page, 'forward-dark', ['[role=dialog][aria-labelledby=forward-title]'], 0);
   await page.keyboard.press('Escape');
   // linking an account: the add-account dialog
   await page.getByTitle('Add account').click();
   await page.locator('[role=dialog][aria-labelledby=wizard-title] .proto').nth(3).waitFor();
   await page.waitForTimeout(400);
-  await saveClip(page, 'link-light', ['[role=dialog][aria-labelledby=wizard-title]'], 0);
+  await saveClip(page, 'link-dark', ['[role=dialog][aria-labelledby=wizard-title]'], 0);
   await page.keyboard.press('Escape');
-});
-
-await session('dark', async (page) => {
-  await save(page, 'inbox-dark');
 });
 
 console.log(`screenshots in ${out}`);
