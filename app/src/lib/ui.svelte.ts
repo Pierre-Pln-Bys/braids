@@ -26,6 +26,7 @@ export interface ConfirmRequest {
 export interface LightboxItem {
   path: string;
   name: string;
+  video?: boolean; // played in the viewer instead of shown
 }
 
 class Ui {

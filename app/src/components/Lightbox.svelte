@@ -27,6 +27,8 @@
   let y = $state(0);
   let stage: HTMLDivElement | undefined = $state();
   let drag: { px: number; py: number; x: number; y: number; moved: boolean } | null = null;
+  let videoFailed = $state(false);
+  const isVideo = $derived(!!item?.video);
 
   // a new image starts fitted
   $effect(() => {
@@ -34,6 +36,7 @@
     scale = 1;
     x = 0;
     y = 0;
+    videoFailed = false;
   });
 
   function close() {
@@ -64,18 +67,20 @@
   }
 
   function onWheel(e: WheelEvent) {
+    if (isVideo) return;
     e.preventDefault();
     const [cx, cy] = center(e);
     zoomTo(scale * Math.exp(-e.deltaY * 0.0015), cx, cy);
   }
 
   function onDblClick(e: MouseEvent) {
+    if (isVideo) return;
     const [cx, cy] = center(e);
     zoomTo(scale > 1 ? 1 : 2.5, cx, cy);
   }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || (isVideo && e.target !== stage)) return;
     drag = { px: e.clientX, py: e.clientY, x, y, moved: false };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
@@ -103,9 +108,9 @@
     const k = e.key;
     let handled = true;
     if (k === 'Escape') close();
-    else if (k === '+' || k === '=') zoomTo(scale * 1.5);
-    else if (k === '-' || k === '_') zoomTo(scale / 1.5);
-    else if (k === '0') zoomTo(1);
+    else if (!isVideo && (k === '+' || k === '=')) zoomTo(scale * 1.5);
+    else if (!isVideo && (k === '-' || k === '_')) zoomTo(scale / 1.5);
+    else if (!isVideo && k === '0') zoomTo(1);
     else if (k === 'ArrowRight' || k === 'j' || k === 'l' || k === 'ArrowDown' || k === 'PageDown') go(1);
     else if (k === 'ArrowLeft' || k === 'k' || k === 'h' || k === 'ArrowUp' || k === 'PageUp') go(-1);
     else handled = false;
@@ -123,9 +128,11 @@
     <div class="lb-bar">
       <span class="lb-name">{item.name}</span>
       {#if count > 1}<span class="lb-pos">{lb.index + 1} / {count}</span>{/if}
-      <span class="lb-zoom">{Math.round(scale * 100)}%</span>
-      <button class="icon-btn" aria-label="Zoom out" title="Zoom out (-)" onclick={() => zoomTo(scale / 1.5)} disabled={scale <= MIN}><ZoomOut size={19} /></button>
-      <button class="icon-btn" aria-label="Zoom in" title="Zoom in (+)" onclick={() => zoomTo(scale * 1.5)} disabled={scale >= MAX}><ZoomIn size={19} /></button>
+      {#if !isVideo}
+        <span class="lb-zoom">{Math.round(scale * 100)}%</span>
+        <button class="icon-btn" aria-label="Zoom out" title="Zoom out (-)" onclick={() => zoomTo(scale / 1.5)} disabled={scale <= MIN}><ZoomOut size={19} /></button>
+        <button class="icon-btn" aria-label="Zoom in" title="Zoom in (+)" onclick={() => zoomTo(scale * 1.5)} disabled={scale >= MAX}><ZoomIn size={19} /></button>
+      {/if}
       <button class="icon-btn" aria-label="Open with default app" title="Open with default app" onclick={() => api.openPath(item.path).catch((e) => store.toastError(e))}><ExternalLink size={19} /></button>
       <button class="icon-btn" aria-label="Close" title="Close (Esc)" onclick={close}><X size={20} /></button>
     </div>
@@ -140,13 +147,28 @@
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
     >
-      <img src={api.fileUrl(item.path)} alt={item.name} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
+      {#if isVideo}
+        {#if videoFailed}
+          <div class="lb-failed">
+            <p>This video cannot be played here.</p>
+            <small>Playing H.264 videos needs GStreamer's codecs (e.g. gstreamer1.0-libav).</small>
+            <button class="btn" onclick={() => api.openPath(item.path).catch((e) => store.toastError(e))}><ExternalLink size={16} />Open in the video player</button>
+          </div>
+        {:else}
+          {#key item.path}
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video src={api.fileUrl(item.path)} controls autoplay onerror={() => (videoFailed = true)}></video>
+          {/key}
+        {/if}
+      {:else}
+        <img src={api.fileUrl(item.path)} alt={item.name} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
+      {/if}
       {#if count > 1}
         <button class="nav prev" aria-label="Previous image" title="Previous (← or k)" onclick={() => go(-1)} onpointerdown={(e) => e.stopPropagation()}><ChevronLeft size={26} /></button>
         <button class="nav next" aria-label="Next image" title="Next (→ or j)" onclick={() => go(1)} onpointerdown={(e) => e.stopPropagation()}><ChevronRight size={26} /></button>
       {/if}
     </div>
-    <div class="lb-hint">Scroll or + / − to zoom · drag to move · {count > 1 ? '← → or j k to switch · ' : ''}Esc to close</div>
+    <div class="lb-hint">{isVideo ? '' : 'Scroll or + / − to zoom · drag to move · '}{count > 1 ? '← → or j k to switch · ' : ''}Esc to close</div>
   </div>
 {/if}
 
@@ -162,6 +184,11 @@
   .lb-stage.zoomed { cursor: grab; }
   .lb-stage.zoomed:active { cursor: grabbing; }
   .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; user-select: none; transform-origin: center center; transition: transform 60ms linear; }
+  .lb-stage video { max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; }
+  .lb-failed { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #f2efeb; text-align: center; }
+  .lb-failed p { margin: 0; font-size: 15px; }
+  .lb-failed small { color: rgba(242, 239, 235, 0.65); }
+  .lb-failed .btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
   .nav {
     position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 22px; border: 0;
     display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.08); color: #f2efeb;

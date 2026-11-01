@@ -10,11 +10,11 @@
   scrolling. Attachments not on this computer are downloaded on click.
 -->
 <script lang="ts">
-  import { Download, ExternalLink, FileText, Film, Link as LinkIcon, LoaderCircle, MessageSquare, X } from '@lucide/svelte';
+  import { Download, ExternalLink, FileText, Film, Link as LinkIcon, LoaderCircle, MessageSquare, Play, X } from '@lucide/svelte';
   import { onDestroy, tick, untrack } from 'svelte';
   import { openLink } from '../lib/actions';
   import * as api from '../lib/api';
-  import { chatKey, fileMime, fileReady, splitKey, store } from '../lib/store.svelte';
+  import { chatKey, fileMime, fileReady, galleryItems, splitKey, store } from '../lib/store.svelte';
   import type { Message } from '../lib/types';
   import { openLightbox, ui } from '../lib/ui.svelte';
 
@@ -130,10 +130,9 @@
       if (m.file?.status !== 'downloading') download(m);
       return;
     }
-    if (fileMime(m.file).startsWith('image/')) {
-      const images = items.filter((x) => fileReady(x.file) && fileMime(x.file).startsWith('image/')).map((x) => ({ path: x.file!.path, name: x.file!.name }));
-      openLightbox(images, m.file!.path);
-    }
+    // images and videos in the viewer (the media tab's order), files outside
+    const gallery = galleryItems(items);
+    if (gallery.some((g) => g.path === m.file!.path)) openLightbox(gallery, m.file!.path);
     else api.openPath(m.file!.path).catch((e) => store.toastError(e));
   }
 
@@ -174,6 +173,10 @@
               <button class="thumb" onclick={() => openMedia(m)} aria-label="{ready ? 'Open' : 'Download'} {m.file?.name}" title={meta(m)}>
                 {#if ready && !video}
                   <img src={api.fileUrl(m.file!.path)} alt={m.file!.name} loading="lazy" />
+                {:else if ready && video}
+                  <!-- svelte-ignore a11y_media_has_caption -->
+                  <video src={`${api.fileUrl(m.file!.path)}#t=0.1`} preload="metadata" muted></video>
+                  <span class="vplay"><Play size={16} fill="currentColor" /></span>
                 {:else}
                   <span class="placeholder">
                     {#if m.file?.status === 'downloading'}<LoaderCircle size={22} class="spin" />
@@ -237,7 +240,12 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; }
   .tile { position: relative; aspect-ratio: 1; }
   .thumb { width: 100%; height: 100%; border: 0; padding: 0; border-radius: 8px; overflow: hidden; background: var(--skeleton); display: block; }
-  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb { position: relative; }
+  .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+  .vplay {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 34px; height: 34px; border-radius: 17px;
+    display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 0.55); color: #fff; pointer-events: none;
+  }
   .placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-muted); padding: 8px; }
   .placeholder small { font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .goto {

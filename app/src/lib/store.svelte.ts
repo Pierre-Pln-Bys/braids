@@ -815,6 +815,13 @@ export function fileReady(f: FileRef | null): boolean {
   return !!f && (f.status === 'downloaded' || (f.status === 'none' && f.path.startsWith('/')));
 }
 
+// images and videos of messages, for the viewer
+export function galleryItems(messages: Message[]): { path: string; name: string; video?: boolean }[] {
+  return messages
+    .filter((x) => fileReady(x.file) && /^(image|video)\//.test(fileMime(x.file)))
+    .map((x) => ({ path: x.file!.path, name: x.file!.name, video: fileMime(x.file).startsWith('video/') }));
+}
+
 export function fileLabel(m: Message): string {
   const mime = fileMime(m.file);
   if (mime.startsWith('image/')) return 'Photo';

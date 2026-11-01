@@ -9,11 +9,11 @@
   groups, quote, attachment, reactions, hover actions.
 -->
 <script lang="ts">
-  import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
+  import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
   import { openLink } from '../lib/actions';
   import * as api from '../lib/api';
   import { isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
-  import { chatKey, fileMime, fileReady, store } from '../lib/store.svelte';
+  import { chatKey, fileMime, fileReady, galleryItems, store } from '../lib/store.svelte';
   import type { Account, Chat, Message } from '../lib/types';
   import { openLightbox, ui, type MenuItem } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
@@ -42,8 +42,9 @@
   const showAvatar = $derived(chat.isGroup && !own);
   const mime = $derived(fileMime(m.file));
   const isImage = $derived(mime.startsWith('image/'));
-  const isVideo = $derived(mime.startsWith('video/') && mime !== 'video/webm');
+  const isVideo = $derived(mime.startsWith('video/'));
   const isAudio = $derived(mime.startsWith('audio/'));
+  let videoFailed = $state(false); // no preview: shown as a file to open externally
   const ready = $derived(fileReady(m.file));
   const emojiOnly = $derived(!m.file && !m.quoted && !m.isDeleted && isOnlyEmoji(m.text));
   const html = $derived(m.isDeleted ? '' : renderText(m.text, m.mentions, account.selfId));
@@ -106,12 +107,9 @@
   function openFile() {
     if (!m.file) return;
     if (ready) {
-      if (isImage) {
-        // switch between the loaded images of the chat
-        const images = (store.messages[chatKey(m.accountId, m.chatId)]?.items ?? [])
-          .filter((x) => fileReady(x.file) && fileMime(x.file).startsWith('image/'))
-          .map((x) => ({ path: x.file!.path, name: x.file!.name }));
-        openLightbox(images, m.file.path);
+      if (isImage || (isVideo && !videoFailed)) {
+        // switch between the loaded images and videos of the chat
+        openLightbox(galleryItems(store.messages[chatKey(m.accountId, m.chatId)]?.items ?? []), m.file.path);
       }
       else api.openPath(m.file.path).catch((e) => store.toastError(e));
     } else if (m.file.status !== 'downloading') {
@@ -253,9 +251,13 @@
           </button>
         {:else if isAudio}
           <VoicePlayer path={ready ? m.file.path : ''} id={m.id} status={m.file.status} onDownload={download} />
-        {:else if isVideo && ready}
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video class="video" src={api.fileUrl(m.file.path)} controls preload="metadata"></video>
+        {:else if isVideo && ready && !videoFailed}
+          <!-- the first frame; plays in the viewer -->
+          <button class="image video-thumb" onclick={openFile} aria-label="Play video {m.file.name}">
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video src={`${api.fileUrl(m.file.path)}#t=0.1`} preload="metadata" muted onerror={() => (videoFailed = true)}></video>
+            <span class="play-mark"><Play size={22} fill="currentColor" /></span>
+          </button>
         {:else}
           <button class="file" onclick={openFile} title={ready ? 'Open' : 'Download'}>
             <span class="file-ico">
@@ -351,7 +353,13 @@
   .q-text { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
 
   .image { border: 0; padding: 0; background: none; display: block; margin-bottom: 4px; }
-  .video { display: block; max-width: 100%; max-height: 360px; border-radius: 12px; margin-bottom: 4px; background: #000; }
+  .video-thumb { position: relative; }
+  .video-thumb video { display: block; max-width: 100%; max-height: 360px; min-width: 160px; min-height: 100px; border-radius: 12px; background: #000; }
+  .play-mark {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 48px; height: 48px; border-radius: 24px;
+    display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 0.55); color: #fff; pointer-events: none;
+  }
+  .video-thumb:hover .play-mark { background: rgb(0 0 0 / 0.7); }
   .image img { display: block; max-width: 100%; max-height: 320px; border-radius: 12px; min-width: 120px; object-fit: cover; }
 
   .file {

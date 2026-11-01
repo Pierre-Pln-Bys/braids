@@ -102,9 +102,9 @@ if [ -n "${MISSING}" ]; then
   say ""
   say "Missing system libraries:${MISSING}"
   say "Install them with your package manager, e.g.:"
-  say "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libsqlite3-0 libmagic1 gstreamer1.0-plugins-good"
-  say "  Fedora:        sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3 sqlite-libs file-libs gstreamer1-plugins-good"
-  say "  Arch:          sudo pacman -S webkit2gtk-4.1 libayatana-appindicator sqlite file gst-plugins-good"
+  say "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libsqlite3-0 libmagic1 gstreamer1.0-plugins-good gstreamer1.0-libav"
+  say "  Fedora:        sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3 sqlite-libs file-libs gstreamer1-plugins-good gstreamer1-libav"
+  say "  Arch:          sudo pacman -S webkit2gtk-4.1 libayatana-appindicator sqlite file gst-plugins-good gst-libav"
 fi
 
 case ":${PATH}:" in

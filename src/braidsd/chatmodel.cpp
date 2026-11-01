@@ -2244,6 +2244,28 @@ json ChatModel::MessageToJson(const std::string& p_AccountId, const std::string&
     const std::string mimeType = fileInfo.fileType.empty() ? GuessMimeType(fileInfo) : fileInfo.fileType;
     std::string path = fileInfo.filePath;
     FileStatus status = fileInfo.fileStatus;
+    std::string name = FileUtil::BaseName(fileInfo.filePath);
+    std::string type = mimeType;
+    // videos WhatsApp saved as .f4v before the extension fix (the path is
+    // fixed when a message arrives): moved to .mp4 once, so players and the
+    // web view recognise them
+    if ((path.size() > 4) && (StrUtil::ToLower(path.substr(path.size() - 4)) == ".f4v"))
+    {
+      const std::string mp4 = path.substr(0, path.size() - 4) + ".mp4";
+      if (!FileUtil::Exists(mp4) && FileUtil::Exists(path) && (status == FileStatusDownloaded))
+      {
+        FileUtil::Move(path, mp4);
+      }
+
+      if (FileUtil::Exists(mp4))
+      {
+        path = mp4;
+      }
+
+      name = name.substr(0, name.size() - 4) + ".mp4";
+      type = "video/mp4";
+    }
+
     // a local file that is gone (cache cleaned, sent from a temp file): to be
     // downloaded again if the messenger has it, else not available
     if (((status == FileStatusDownloaded) || (status == FileStatusNone)) && !path.empty() && (path.at(0) == '/') &&
@@ -2256,8 +2278,8 @@ json ChatModel::MessageToJson(const std::string& p_AccountId, const std::string&
     file = json{
       { "id", fileInfo.fileId },
       { "path", path },
-      { "name", FileUtil::BaseName(fileInfo.filePath) },
-      { "mimeType", mimeType },
+      { "name", name },
+      { "mimeType", type },
       { "status", FileStatusToString(status) },
     };
   }

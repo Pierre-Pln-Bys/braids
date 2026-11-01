@@ -264,6 +264,38 @@ try {
   await voice.getByRole('button', { name: 'Play', exact: true }).waitFor({ timeout: 5000 });
   check(true, 'voice message ends');
 
+  // videos: first frame with a play mark in the chat, played in the viewer
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 120;
+    const g = canvas.getContext('2d');
+    const rec = new MediaRecorder(canvas.captureStream(25), { mimeType: 'video/webm' });
+    const chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.start(100);
+    for (let i = 0; i < 20; i++) {
+      g.fillStyle = `hsl(${i * 18}, 70%, 50%)`;
+      g.fillRect(0, 0, 160, 120);
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    await new Promise((r) => { rec.onstop = r; rec.stop(); });
+    const up = await (await fetch('/__braids/upload?name=clip.webm', { method: 'POST', body: new Blob(chunks, { type: 'video/webm' }) })).json();
+    const accounts = await (await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method: 'accounts.list' }) })).json();
+    await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method: 'messages.send', params: { accountId: accounts.result[0].accountId, chatId: 'Michael_0', filePath: up.path } }) });
+  });
+  const clip = page.locator('.msg .video-thumb').last();
+  await clip.waitFor();
+  check(await clip.locator('.play-mark').count() === 1, 'video shown with its first frame and a play mark');
+  await clip.click();
+  await page.locator('.lightbox video').waitFor();
+  check(true, 'video plays in the viewer');
+  check(await page.locator('.lightbox .lb-zoom').count() === 0, 'no zoom for videos');
+  await page.keyboard.press('k');
+  await page.locator('.lightbox img').waitFor();
+  check(true, 'viewer switches from a video to the images');
+  await page.keyboard.press('Escape');
+
   // recording a voice message: mic when the box is empty, cancel and send
   await composer.fill('');
   await page.getByRole('button', { name: 'Record voice message' }).click();
@@ -312,7 +344,7 @@ try {
   await page.keyboard.press('Escape');
 
   // image viewer: switch, zoom, pan, close
-  await page.locator('.msg .image').last().click();
+  await page.locator('.msg .image:not(.video-thumb)').last().click();
   await page.locator('.lightbox img').waitFor();
   const pos = () => page.locator('.lb-pos').textContent();
   const first = await pos();
@@ -324,7 +356,8 @@ try {
   await page.keyboard.press('+');
   check((await page.locator('.lb-zoom').textContent()) === '150%', '+ zooms in');
   await page.keyboard.press('k');
-  check((await pos()) !== first && (await page.locator('.lb-zoom').textContent()) === '100%', 'k switches while zoomed (new image fitted)');
+  check((await pos()) !== first && (await page.locator('.lightbox video').count() === 1 || (await page.locator('.lb-zoom').textContent()) === '100%'),
+    'k switches while zoomed (next item fitted)');
   await page.keyboard.press('j');
   await page.keyboard.press('+');
   const box = await page.locator('.lb-stage').boundingBox();
