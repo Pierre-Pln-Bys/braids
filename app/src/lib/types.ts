@@ -71,7 +71,8 @@ export interface Chat {
   isUnread: boolean;
   isUnreadMention: boolean;
   isMuted: boolean;
-  unreadCount: number; // received unread messages (at least 1 when isUnread)
+  unreadCount: number; // received unread messages (group events not included)
+  unreadEvents: number; // unread group events (joined, left, ...)
   isPinned: boolean;
   isArchived: boolean;
   lastActivity: number;

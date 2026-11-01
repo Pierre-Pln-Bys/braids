@@ -62,14 +62,16 @@ Objects
 **Chat**
 
     {"accountId", "id", "name", "isGroup", "isUnread", "isUnreadMention",
-     "unreadCount", "isMuted", "isPinned", "isArchived",
+     "unreadCount", "unreadEvents", "isMuted", "isPinned", "isArchived",
      "lastActivity": <time of last message, -1 if unknown>,
      "lastMessage": Message | null, "typing": [userId]}
 
 Protocols report unread state per chat, not counts: `unreadCount` is
 braidsd's count of received unread messages after the last own or read one
-(from the loaded messages and the history cache; at least 1 when `isUnread`,
-0 otherwise). `isUnread` is also true for chats marked with
+(from the loaded messages and the history cache), group events (`system`
+messages: joined, left, ...) not included; those are `unreadEvents`. A chat
+that `isUnread` with only events has `unreadCount` 0 (clients show it like a
+muted chat); with neither known, `unreadCount` is 1. `isUnread` is also true for chats marked with
 `chats.markUnread` until they are read. `isMuted` is braids' own setting when one was made with
 `chats.mute`, else the messenger's; muted chats send no `notification`
 (except for mentions).

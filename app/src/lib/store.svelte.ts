@@ -119,9 +119,17 @@ class Store {
       .sort((a, b) => b.lastActivity - a.lastActivity);
   }
 
-  // unread messages of a chat (protocols that report only the state: 1)
+  // only group events (joined, left, ...) are new: shown grey, not counted
+  // in folders or the tray, like a muted chat
+  eventsOnly(c: Chat): boolean {
+    return c.isUnread && (c.unreadCount ?? 1) === 0 && (c.unreadEvents ?? 0) > 0;
+  }
+
+  // the number on a chat: its unread messages, or its unread events when
+  // there are only those
   chatUnread(c: Chat): number {
-    return c.isUnread ? Math.max(1, c.unreadCount ?? 1) : 0;
+    if (!c.isUnread) return 0;
+    return this.eventsOnly(c) ? c.unreadEvents : Math.max(1, c.unreadCount ?? 1);
   }
 
   // unread chats per folder (each counts once, however many messages);
@@ -134,6 +142,7 @@ class Store {
     return Object.values(this.chats).filter((c) => {
       if (!c.isUnread || !this.accounts[c.accountId]) return false;
       if (c.isMuted && !c.isUnreadMention) return false;
+      if (this.eventsOnly(c)) return false;
       const category = this.category(c);
       if (filter.kind === 'archived') return category === 'archived';
       if (category === 'archived') return false;
@@ -636,7 +645,7 @@ class Store {
     // earlier opening
     const list = this.messages[key];
     if (list) {
-      const firstUnread = list.items.find((m) => !m.isOutgoing && !m.isRead);
+      const firstUnread = list.items.find((m) => !m.isOutgoing && !m.isRead && !m.system);
       list.firstUnreadId = this.chats[key]?.isUnread && firstUnread ? firstUnread.id : '';
     }
     this.markCurrentRead();

@@ -244,16 +244,19 @@ void ChatModel::SaveAccountState(const std::string& p_AccountId)
   FileUtil::Move(path + ".tmp", path);
 }
 
-int ChatModel::UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo)
+void ChatModel::UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo, int& p_Messages, int& p_Events)
 {
-  if (!p_ChatInfo.isUnread && !p_Account.markedUnread.count(p_ChatInfo.id))
+  p_Messages = 0;
+  p_Events = 0;
+  const bool markedUnread = p_Account.markedUnread.count(p_ChatInfo.id);
+  if (!p_ChatInfo.isUnread && !markedUnread)
   {
     p_Account.cachedUnread.erase(p_ChatInfo.id); // read since
-    return 0;
+    return;
   }
 
-  // received unread messages after the last own or read one
-  int count = 0;
+  // received unread messages after the last own or read one; group events
+  // (joined, left, ...) counted apart
   auto cit = p_Account.chats.find(p_ChatInfo.id);
   if (cit != p_Account.chats.end())
   {
@@ -273,7 +276,7 @@ int ChatModel::UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo)
       if (!chatMessage.isOutgoing && !chatMessage.isRead && !chatMessage.isDeleted &&
           (chatMessage.timeSent > readTime) && (chatMessage.timeSent != s_SponsoredTime))
       {
-        ++count;
+        ++(SystemText(chatMessage).empty() ? p_Messages : p_Events);
       }
     }
   }
@@ -281,11 +284,14 @@ int ChatModel::UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo)
   auto uit = p_Account.cachedUnread.find(p_ChatInfo.id);
   if (uit != p_Account.cachedUnread.end())
   {
-    count = std::max(count, uit->second);
+    p_Messages = std::max(p_Messages, uit->second);
   }
 
-  // unread state without known messages (e.g. marked unread): one
-  return std::max(count, 1);
+  // unread state without known messages (e.g. marked unread): one message
+  if (markedUnread || ((p_Messages == 0) && (p_Events == 0)))
+  {
+    p_Messages = std::max(p_Messages, 1);
+  }
 }
 
 static bool HasLink(const std::string& p_Text)
@@ -2102,6 +2108,10 @@ json ChatModel::ChatToJson(const std::string& p_AccountId, const ChatInfo& p_Cha
     }
   }
 
+  int unreadMessages = 0;
+  int unreadEvents = 0;
+  UnreadCount(m_Accounts[p_AccountId], p_ChatInfo, unreadMessages, unreadEvents);
+
   const ChatMessage* lastMessage = GetLastMessage(p_AccountId, p_ChatInfo.id);
   int64_t lastActivity = (lastMessage != nullptr) ? lastMessage->timeSent : p_ChatInfo.lastMessageTime;
   if (lastActivity == s_SponsoredTime)
@@ -2116,7 +2126,8 @@ json ChatModel::ChatToJson(const std::string& p_AccountId, const ChatInfo& p_Cha
     { "isGroup", isGroup },
     { "isUnread", p_ChatInfo.isUnread || m_Accounts[p_AccountId].markedUnread.count(p_ChatInfo.id) },
     { "isUnreadMention", p_ChatInfo.isUnreadMention },
-    { "unreadCount", UnreadCount(m_Accounts[p_AccountId], p_ChatInfo) },
+    { "unreadCount", unreadMessages },
+    { "unreadEvents", unreadEvents },
     { "isMuted", IsMuted(m_Accounts[p_AccountId], p_ChatInfo) },
     { "isPinned", p_ChatInfo.isPinned },
     { "isArchived", p_ChatInfo.isArchived },

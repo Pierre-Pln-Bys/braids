@@ -164,6 +164,10 @@ def main():
                            "unread count of Kevin's chat")[0]
         check(kevin["isUnread"] and kevin["unreadCount"] == 2, "unread count")
         check(all(c["unreadCount"] == 0 for c in d.call("chats.list") if not c["isUnread"]), "read chats count 0")
+        party = [c for c in d.call("chats.list") if c["name"] == "Party Planning"][0]
+        check(party["isUnread"] and party["unreadCount"] == 0 and party["unreadEvents"] == 1,
+              "group events counted apart from messages")
+        check(kevin["unreadEvents"] == 0, "no events in Kevin's chat")
 
         # marked unread in braids until read
         d.call("chats.markUnread", {"accountId": account_id, "chatId": group["id"]})

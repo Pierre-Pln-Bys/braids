@@ -165,7 +165,8 @@ private:
   std::map<std::string, std::string> ParseMentions(const std::string& p_AccountId, const std::string& p_ChatId,
                                                    const std::string& p_Text);
 
-  int UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo);
+  // unread received messages and group events (joined, left, ...)
+  void UnreadCount(AccountState& p_Account, const ChatInfo& p_ChatInfo, int& p_Messages, int& p_Events);
   bool IsMuted(const AccountState& p_Account, const ChatInfo& p_ChatInfo) const;
   void LoadAccountState(const std::string& p_AccountId);
   void SaveAccountState(const std::string& p_AccountId);

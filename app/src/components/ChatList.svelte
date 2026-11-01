@@ -135,7 +135,7 @@
         class="row"
         class:selected
         class:cursor={i === cursor}
-        class:unread={c.isUnread}
+        class:unread={c.isUnread && !store.eventsOnly(c)}
         class:muted={c.isMuted}
         role="option"
         aria-selected={selected}
@@ -166,7 +166,8 @@
             {#if c.isUnreadMention}<span class="mention-dot" title="Mentioned"><AtSign size={12} strokeWidth={2.5} /></span>{/if}
             {#if c.isUnread}
               {@const n = store.chatUnread(c)}
-              <span class="unread-count" class:muted={c.isMuted} title="{n} unread">{n > 999 ? '999+' : n}</span>
+              <span class="unread-count" class:muted={c.isMuted || store.eventsOnly(c)}
+                title={store.eventsOnly(c) ? `${n} new group ${n === 1 ? 'event' : 'events'}` : `${n} unread`}>{n > 999 ? '999+' : n}</span>
             {/if}
           </div>
         </div>

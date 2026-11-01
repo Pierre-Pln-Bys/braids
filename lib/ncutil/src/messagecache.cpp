@@ -858,6 +858,8 @@ std::map<std::string, int> MessageCache::GetUnreadCountsSync(const std::string& 
       " WHERE isOutgoing = 1 OR isRead = 1 GROUP BY chatId) "
       "SELECT m.chatId, COUNT(*) FROM " + s_TableMessages + " m LEFT JOIN r ON r.chatId = m.chatId"
       " WHERE m.isRead = 0 AND m.isOutgoing = 0 AND COALESCE(m.isDeleted, 0) = 0 AND m.timeSent > COALESCE(r.t, 0)"
+      // group events ("[Joined]" without a file) are not messages to count
+      " AND NOT (m.text LIKE '[%]' AND COALESCE(m.fileInfo, '') = '')"
       " GROUP BY m.chatId;" >>
       [&](const std::string& chatId, int32_t count)
       {

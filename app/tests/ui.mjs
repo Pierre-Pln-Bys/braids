@@ -258,6 +258,11 @@ try {
   const kevinRow = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Kevin$/ }) });
   check((await kevinRow.locator('.unread-count').textContent()) === '2', 'unread message count in the list');
   check((await page.getByRole('button', { name: /All chats/ }).locator('.count').textContent()) === '1', 'folder counts chats, not messages');
+  // only a group event new (Angela joined): grey, not bold, not counted
+  const partyRow = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Party Planning$/ }) });
+  check(await partyRow.locator('.unread-count.muted').textContent() === '1', 'group event only: grey count');
+  check(!(await partyRow.getAttribute('class')).includes('unread'), 'group event only: row not bold');
+  check((await partyRow.textContent()).includes('Angela joined'), 'group event in the preview');
 
   // mark as unread: a count of one until opened
   const pamRow2 = page.locator('.chatlist .row', { has: page.locator('.name', { hasText: /^Pam$/ }) });

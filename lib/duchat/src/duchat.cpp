@@ -8,6 +8,7 @@
 #include "duchat.h"
 
 #include <algorithm>
+#include <tuple>
 #include <iostream>
 #include <map>
 
@@ -22,6 +23,8 @@
 #include "timeutil.h"
 
 static const std::string s_GroupId = "The Office_0";
+// a second group whose only unread item is a group event (Angela joined)
+static const std::string s_PartyId = "Party Planning_0";
 
 extern "C" DuChat* CreateDuChat()
 {
@@ -51,7 +54,7 @@ bool DuChat::HasFeature(ProtocolFeature p_ProtocolFeature) const
 
 bool DuChat::IsGroupChat(const std::string& p_ChatId) const
 {
-  return (p_ChatId == s_GroupId) || ((p_ChatId.size() > 5) && (p_ChatId.compare(p_ChatId.size() - 5, 5, "_join") == 0));
+  return (p_ChatId == s_GroupId) || (p_ChatId == s_PartyId) || ((p_ChatId.size() > 5) && (p_ChatId.compare(p_ChatId.size() - 5, 5, "_join") == 0));
 }
 
 std::string DuChat::GetSelfId() const
@@ -400,6 +403,39 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
 
             t = t - 100;
             s_Messages[s_GroupId].push_back(chatMessage);
+          }
+        }
+
+        // Party Planning: read messages, then an unread group event
+        {
+          ChatInfo chatInfo;
+          chatInfo.id = s_PartyId;
+          chatInfo.lastMessageTime = (1237900000LL * 1000);
+          chatInfo.isUnread = true;
+          newChatsNotify->chatInfos.push_back(chatInfo);
+
+          ContactInfo contactInfo;
+          contactInfo.id = s_PartyId;
+          contactInfo.name = "Party Planning";
+          newContactsNotify->contactInfos.push_back(contactInfo);
+
+          // newest first
+          const std::vector<std::tuple<std::string, std::string, bool>> partyMessages = {
+            { "Angela_0", "[Joined]", false },
+            { "Phyllis_0", "Streamers are fine.", true },
+          };
+          int64_t pt = 1237900000;
+          for (const auto& partyMessage : partyMessages)
+          {
+            ChatMessage chatMessage;
+            chatMessage.id = std::get<0>(partyMessage) + "_" + std::to_string(pt);
+            chatMessage.senderId = std::get<0>(partyMessage);
+            chatMessage.text = std::get<1>(partyMessage);
+            chatMessage.timeSent = pt * 1000;
+            chatMessage.isRead = std::get<2>(partyMessage);
+            chatMessage.isOutgoing = false;
+            s_Messages[s_PartyId].push_back(chatMessage);
+            pt -= 100;
           }
         }
 
