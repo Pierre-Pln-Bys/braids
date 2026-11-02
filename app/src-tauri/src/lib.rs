@@ -200,7 +200,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // one braids per profile: starting it again shows the running window
+    // (registered first, so a second instance exits before doing anything)
+    if !daemon::custom_profile() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
