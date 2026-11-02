@@ -149,7 +149,7 @@
 <div class="voice" class:playing={isPlaying}>
   <button class="play" class:failed onclick={failed ? openExternally : toggle}
     aria-label={failed ? 'Open in your audio player' : !path ? 'Download voice message' : isPlaying ? 'Pause' : 'Play'}
-    title={failed ? 'Open in your audio player' : undefined}>
+    title={failed ? 'Open in your audio player. Playing AAC (.m4a) and MP3 in braids needs GStreamer’s codecs, e.g. gstreamer1.0-libav.' : undefined}>
     {#if failed}<TriangleAlert size={18} />
     {:else if status === 'downloading'}<LoaderCircle size={18} class="spin" />
     {:else if isPlaying}<Pause size={18} fill="currentColor" />
