@@ -1971,8 +1971,11 @@ func (handler *WmEventHandler) HandleVideoMessage(messageInfo types.MessageInfo,
 		return
 	}
 
-	// get extension
+	// get extension (braids: ".gif.mp4" marks a GIF, shown muted and looping)
 	ext := ExtensionByType(vid.GetMimetype(), ".mp4")
+	if vid.GetGifPlayback() {
+		ext = ".gif" + ext
+	}
 
 	// text
 	text := vid.GetCaption()

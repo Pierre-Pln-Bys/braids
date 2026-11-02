@@ -117,3 +117,11 @@ Media and formatting
 - [x] Mentions: send pills + m.mentions, receive pills as @Name / @[Name]
 - [x] Unencrypted attachments, save, content identical
 - [ ] Large files / slow servers
+
+Single sign-on
+--------------
+
+Homeservers that only offer single sign-on (SAML, OpenID Connect, CAS
+behind `m.login.sso`) are supported: braids opens the homeserver's SSO page
+in the browser with a redirect to a one-off listener on `127.0.0.1`, and logs
+in with the returned token (`m.login.token`). See `go/gomx_sso.go`.

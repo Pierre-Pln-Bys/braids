@@ -7,6 +7,7 @@
 #include "core.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 #include <dirent.h>
@@ -26,7 +27,7 @@
 #include "timeutil.h"
 
 // semver of the API; clients must match the major version
-static const std::string s_ApiVersion = "0.8.0";
+static const std::string s_ApiVersion = "0.9.0";
 static const int64_t s_StartTime = TimeUtil::GetCurrentTimeMSec();
 
 static const char* AuthStepToString(AuthStep p_Step)
@@ -420,6 +421,32 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
     p_Reply.Ok(m_ChatModel->GetMedia(ParamStrOpt(params, "accountId"), ParamStrOpt(params, "chatId"),
                                       ParamStr(params, "kind"), ParamInt(params, "beforeTime", 0),
                                       (int)ParamInt(params, "limit", 60)));
+  }
+  else if (p_Method == "chats.createGroup")
+  {
+    if (!params.contains("userIds") || !params["userIds"].is_array())
+    {
+      throw ApiException(ApiErrorInvalidParams, "missing array param 'userIds'");
+    }
+
+    std::vector<std::string> userIds;
+    for (const auto& id : params["userIds"])
+    {
+      if (id.is_string() && !id.get<std::string>().empty()) userIds.push_back(id.get<std::string>());
+    }
+
+    std::string name = ParamStr(params, "name");
+    while (!name.empty() && std::isspace((unsigned char)name.back())) name.pop_back();
+    if (name.empty()) throw ApiException(ApiErrorInvalidParams, "the group needs a name");
+
+    m_ChatModel->CreateGroup(ParamStr(params, "accountId"), name, userIds);
+    p_Reply.Ok(json::object());
+  }
+  else if (p_Method == "messages.search")
+  {
+    p_Reply.Ok(m_ChatModel->GetMedia(ParamStrOpt(params, "accountId"), ParamStrOpt(params, "chatId"), "search",
+                                      ParamInt(params, "beforeTime", 0), (int)ParamInt(params, "limit", 40),
+                                      ParamStr(params, "text")));
   }
   else if ((p_Method == "avatars.get") || (p_Method == "descriptions.get"))
   {

@@ -10,8 +10,9 @@ Agreed features not scheduled in a milestone yet. Newest first.
   runs (it holds the sessions and keys), an authenticated WebSocket transport
   instead of the local socket, and TLS. A hosted service is not planned
   (it would hold everyone's message keys).
-- **Other platforms**: Linux ARM64 and Flatpak/AppImage packages. macOS is
-  not planned (decided against); Windows and mobile are out of scope.
+- **Flathub**: the Flatpak is attached to releases; publishing it on
+  Flathub needs a build from source (no prebuilt tarball). macOS is not
+  planned (decided against); Windows and mobile are out of scope.
 
 - **Custom groups**: user-defined chat groups/folders beyond All, Favorites
   and Archived.

@@ -48,13 +48,26 @@ std::string DuChat::GetProfileId() const
 bool DuChat::HasFeature(ProtocolFeature p_ProtocolFeature) const
 {
   static int customFeatures =
-    FeatureAutoGetContactsOnLogin | FeatureEditMessagesAnytime | FeatureAvatars | FeatureDescriptions | FeatureJoinChat;
+    FeatureAutoGetContactsOnLogin | FeatureEditMessagesAnytime | FeatureAvatars | FeatureDescriptions | FeatureJoinChat |
+    FeatureCreateGroup | FeaturePinMessage;
   return (p_ProtocolFeature & customFeatures);
+}
+
+// groups made with CreateGroupRequest: chat id -> member ids
+static std::map<std::string, std::vector<std::string>>& CreatedGroups()
+{
+  static std::map<std::string, std::vector<std::string>> s_Groups;
+  return s_Groups;
 }
 
 bool DuChat::IsGroupChat(const std::string& p_ChatId) const
 {
-  return (p_ChatId == s_GroupId) || (p_ChatId == s_PartyId) || ((p_ChatId.size() > 5) && (p_ChatId.compare(p_ChatId.size() - 5, 5, "_join") == 0));
+  auto endsWith = [&](const std::string& p_Suffix)
+  {
+    return (p_ChatId.size() > p_Suffix.size()) &&
+           (p_ChatId.compare(p_ChatId.size() - p_Suffix.size(), p_Suffix.size(), p_Suffix) == 0);
+  };
+  return (p_ChatId == s_GroupId) || (p_ChatId == s_PartyId) || endsWith("_join") || endsWith("_group");
 }
 
 std::string DuChat::GetSelfId() const
@@ -665,7 +678,19 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         std::shared_ptr<NewGroupMembersNotify> newGroupMembersNotify =
           std::make_shared<NewGroupMembersNotify>(m_ProfileId);
         newGroupMembersNotify->chatId = getGroupMembersRequest->chatId;
-        if (getGroupMembersRequest->chatId == s_GroupId)
+        std::map<std::string, std::vector<std::string>>& s_Created = CreatedGroups();
+        if (s_Created.count(getGroupMembersRequest->chatId))
+        {
+          for (const std::string& id : s_Created[getGroupMembersRequest->chatId])
+          {
+            ContactInfo contactInfo;
+            contactInfo.id = id;
+            contactInfo.name = id.substr(0, id.find('_'));
+            contactInfo.isSelf = (id == GetSelfId());
+            newGroupMembersNotify->contactInfos.push_back(contactInfo);
+          }
+        }
+        else if (getGroupMembersRequest->chatId == s_GroupId)
         {
           for (const std::string& name : { "Andy", "Dwight", "Jim", "Michael", "Pam", "Stanley" })
           {
@@ -678,6 +703,55 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         }
 
         m_MessageHandler(newGroupMembersNotify);
+      }
+      break;
+
+    case PinMessageRequestType:
+      {
+        std::shared_ptr<PinMessageRequest> pinMessageRequest =
+          std::static_pointer_cast<PinMessageRequest>(p_RequestMessage);
+        for (auto& chatMessage : s_Messages[pinMessageRequest->chatId])
+        {
+          if (chatMessage.id == pinMessageRequest->msgId) chatMessage.isPinned = pinMessageRequest->isPinned;
+        }
+
+        std::shared_ptr<NewMessageIsPinnedNotify> notify = std::make_shared<NewMessageIsPinnedNotify>(m_ProfileId);
+        notify->chatId = pinMessageRequest->chatId;
+        notify->msgId = pinMessageRequest->msgId;
+        notify->isPinned = pinMessageRequest->isPinned;
+        m_MessageHandler(notify);
+      }
+      break;
+
+    case CreateGroupRequestType:
+      {
+        // a new group "<Name>_group" with the members and self
+        std::shared_ptr<CreateGroupRequest> createGroupRequest =
+          std::static_pointer_cast<CreateGroupRequest>(p_RequestMessage);
+        ContactInfo contactInfo;
+        contactInfo.id = createGroupRequest->name + "_group";
+        contactInfo.name = createGroupRequest->name;
+        std::shared_ptr<NewContactsNotify> newContactsNotify = std::make_shared<NewContactsNotify>(m_ProfileId);
+        newContactsNotify->contactInfos.push_back(contactInfo);
+        m_MessageHandler(newContactsNotify);
+
+        std::vector<std::string> members = createGroupRequest->userIds;
+        members.push_back(GetSelfId());
+        CreatedGroups()[contactInfo.id] = members;
+
+        ChatInfo chatInfo;
+        chatInfo.id = contactInfo.id;
+        chatInfo.lastMessageTime = TimeUtil::GetCurrentTimeMSec();
+        std::shared_ptr<NewChatsNotify> newChatsNotify = std::make_shared<NewChatsNotify>(m_ProfileId);
+        newChatsNotify->success = true;
+        newChatsNotify->chatInfos.push_back(chatInfo);
+        m_MessageHandler(newChatsNotify);
+
+        std::shared_ptr<CreateGroupNotify> createGroupNotify = std::make_shared<CreateGroupNotify>(m_ProfileId);
+        createGroupNotify->name = createGroupRequest->name;
+        createGroupNotify->success = true;
+        createGroupNotify->chatId = chatInfo.id;
+        m_MessageHandler(createGroupNotify);
       }
       break;
 

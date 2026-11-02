@@ -242,6 +242,7 @@ private:
   void NotifyAvatar(const std::string& p_AvatarId, const std::string& p_FilePath);
   void GetDescription(const std::string& p_DescId);
   void JoinChat(const std::string& p_Link);
+  void CreateGroup(const std::string& p_Name, const std::vector<std::string>& p_UserIds);
   void NotifyJoinChat(const std::string& p_Link, bool p_Success, int64_t p_ChatId, const std::string& p_Error);
   void GetUserDescription(const std::string& p_DescId, int64_t p_UserId);
   void NotifyDescription(const std::string& p_DescId, const std::string& p_Description);
@@ -417,7 +418,7 @@ bool TgChat::Impl::HasFeature(ProtocolFeature p_ProtocolFeature) const
     FeaturePinMessage |
     FeatureAvatars |
     FeatureDescriptions |
-    FeatureJoinChat;
+    FeatureJoinChat | FeatureCreateGroup;
   return (p_ProtocolFeature & customFeatures);
 }
 
@@ -1812,6 +1813,14 @@ void TgChat::Impl::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessa
         std::shared_ptr<GetDescriptionRequest> getDescriptionRequest =
           std::static_pointer_cast<GetDescriptionRequest>(p_RequestMessage);
         GetDescription(getDescriptionRequest->id);
+      }
+      break;
+
+    case CreateGroupRequestType:
+      {
+        std::shared_ptr<CreateGroupRequest> createGroupRequest =
+          std::static_pointer_cast<CreateGroupRequest>(p_RequestMessage);
+        CreateGroup(createGroupRequest->name, createGroupRequest->userIds);
       }
       break;
 
@@ -3514,7 +3523,8 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     auto& localFile = animationFile->local_;
     auto& localPath = localFile->path_;
     FileInfo fileInfo;
-    fileInfo.fileType = animation->mime_type_;
+    // braids: shown like a GIF (muted, looping)
+    fileInfo.fileType = (animation->mime_type_.empty() ? std::string("video/mp4") : animation->mime_type_) + "; braids=gif";
     std::string id = animationFile->remote_->id_;
     fileInfo.fileId = id;
     if (!localPath.empty())
@@ -3647,13 +3657,18 @@ void TgChat::Impl::TdMessageContentConvert(td::td_api::MessageContent& p_TdMessa
     auto& localFile = stickerFile->local_;
     auto& localPath = localFile->path_;
     FileInfo fileInfo;
+    // braids: the "braids=sticker" parameter marks the file as a sticker
     if (sticker->format_ && (sticker->format_->get_id() == td::td_api::stickerFormatWebp::ID))
     {
-      fileInfo.fileType = "image/webp";
+      fileInfo.fileType = "image/webp; braids=sticker";
     }
     else if (sticker->format_ && (sticker->format_->get_id() == td::td_api::stickerFormatWebm::ID))
     {
-      fileInfo.fileType = "video/webm";
+      fileInfo.fileType = "video/webm; braids=sticker";
+    }
+    else if (sticker->format_ && (sticker->format_->get_id() == td::td_api::stickerFormatTgs::ID))
+    {
+      fileInfo.fileType = "application/x-tgsticker; braids=sticker";
     }
     std::string id = stickerFile->remote_->id_;
     fileInfo.fileId = id;
@@ -4058,6 +4073,38 @@ void TgChat::Impl::NotifyJoinChat(const std::string& p_Link, bool p_Success, int
   joinChatNotify->chatId = p_Success ? StrUtil::NumToHex(p_ChatId) : "";
   joinChatNotify->error = p_Error;
   CallMessageHandler(joinChatNotify);
+}
+
+// braids: a basic group with the given members (user ids as in contacts)
+void TgChat::Impl::CreateGroup(const std::string& p_Name, const std::vector<std::string>& p_UserIds)
+{
+  auto create = td::td_api::make_object<td::td_api::createNewBasicGroupChat>();
+  for (const std::string& userId : p_UserIds)
+  {
+    create->user_ids_.push_back(StrUtil::NumFromHex<int64_t>(userId));
+  }
+
+  create->title_ = p_Name;
+  const std::string name = p_Name;
+  SendQuery(std::move(create), [this, name](Object object)
+  {
+    std::shared_ptr<CreateGroupNotify> createGroupNotify = std::make_shared<CreateGroupNotify>(m_ProfileId);
+    createGroupNotify->name = name;
+    if (object->get_id() == td::td_api::createdBasicGroupChat::ID)
+    {
+      createGroupNotify->success = true;
+      createGroupNotify->chatId =
+        StrUtil::NumToHex(td::move_tl_object_as<td::td_api::createdBasicGroupChat>(object)->chat_id_);
+    }
+    else
+    {
+      createGroupNotify->error = (object->get_id() == td::td_api::error::ID)
+        ? "Could not create the group: " + td::move_tl_object_as<td::td_api::error>(object)->message_
+        : std::string("Could not create the group.");
+    }
+
+    CallMessageHandler(createGroupNotify);
+  });
 }
 
 // Description of a group / channel, or the bio of a user (for a private or

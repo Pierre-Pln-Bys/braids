@@ -58,6 +58,12 @@ fn custom_confdir() -> Option<PathBuf> {
     std::env::var_os("BRAIDS_CONFDIR").filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
+/// Whether this app uses its own profile or daemon (`BRAIDS_CONFDIR` or
+/// `BRAIDS_SOCKET`, e.g. tests): such instances may run next to the normal one.
+pub fn custom_profile() -> bool {
+    custom_confdir().is_some() || std::env::var_os("BRAIDS_SOCKET").is_some_and(|v| !v.is_empty())
+}
+
 /// Same rules as braidsd's ApiServer::GetDefaultSocketPath.
 fn socket_path(confdir: &Option<PathBuf>) -> PathBuf {
     if let Some(path) = std::env::var_os("BRAIDS_SOCKET").filter(|v| !v.is_empty()) {

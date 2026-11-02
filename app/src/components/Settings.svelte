@@ -76,6 +76,30 @@
   const account = $derived(ui.settingsAccount ? store.accounts[ui.settingsAccount] : undefined);
   let removing = $state(false);
 
+  // start at login (the plugin's state, not a setting) and updates
+  let autostart = $state(false);
+  let installKind = $state('');
+  let updateStatus = $state('');
+  if (api.isTauri) {
+    api.autostartEnabled().then((on) => (autostart = on)).catch(() => {});
+    api.installKind().then((k) => (installKind = k)).catch(() => {});
+  }
+
+  async function toggleAutostart() {
+    try {
+      await api.setAutostart(!autostart);
+      autostart = await api.autostartEnabled();
+    } catch (e) {
+      store.toastError(e);
+    }
+  }
+
+  async function checkNow() {
+    updateStatus = 'Checking…';
+    const u = await store.checkUpdates(true);
+    updateStatus = u ? '' : 'braids is up to date.';
+  }
+
   function set<K extends keyof typeof settings>(key: K, value: (typeof settings)[K]) {
     (settings as any)[key] = value;
     settings.save();
@@ -153,9 +177,27 @@
           </div>
         </div>
         <div class="row">
+          <div class="row-text"><b>Favorites</b><span>Their own folder in the sidebar, pinned at the top of every chat list, or both.</span></div>
+          <div class="segmented" role="group" aria-label="Favorites">
+            {#each [{ id: 'folder', label: 'Folder' }, { id: 'top', label: 'On top' }, { id: 'both', label: 'Both' }] as const as o}
+              <button aria-pressed={settings.favorites === o.id} onclick={() => set('favorites', o.id)}>{o.label}</button>
+            {/each}
+          </div>
+        </div>
+        <div class="row">
           <div class="row-text"><b>Enter sends the message</b><span>Off: Ctrl+Enter sends, Enter adds a line.</span></div>
           <button class="toggle" role="switch" aria-checked={settings.enterSends} aria-label="Enter sends" onclick={() => set('enterSends', !settings.enterSends)}></button>
         </div>
+        <div class="row">
+          <div class="row-text"><b>Link previews</b><span>Show the title and picture of linked pages. braids loads them from this computer, so the site sees your IP address.</span></div>
+          <button class="toggle" role="switch" aria-checked={settings.linkPreviews} aria-label="Link previews" onclick={() => set('linkPreviews', !settings.linkPreviews)}></button>
+        </div>
+        {#if api.isTauri && installKind !== 'flatpak'}
+          <div class="row">
+            <div class="row-text"><b>Start braids at login</b><span>In the tray, without opening the window.</span></div>
+            <button class="toggle" role="switch" aria-checked={autostart} aria-label="Start at login" onclick={toggleAutostart}></button>
+          </div>
+        {/if}
         {#if api.isTauri}
           <div class="row">
             <div class="row-text"><b>Keep running in the tray when the window is closed</b><span>You’ll keep getting notifications.</span></div>
@@ -264,6 +306,18 @@
           <Logo size={56} />
           <h2>braids</h2>
           <span class="hint">Core {store.daemonVersion || '–'} · API {store.apiVersion || '–'} · built on nchat</span>
+          {#if api.isTauri}
+            <div class="update">
+              {#if store.update}
+                <span>braids {store.update.version} is available.</span>
+                <button class="btn primary sm" onclick={() => api.openUrl(store.update!.url).catch((e) => store.toastError(e))}>Get it</button>
+              {:else}
+                <span>{updateStatus}</span>
+                <button class="btn sm" onclick={checkNow} disabled={updateStatus === 'Checking…'}>Check for updates</button>
+              {/if}
+            </div>
+            <label class="check"><input type="checkbox" checked={settings.checkUpdates} onchange={(e) => set('checkUpdates', e.currentTarget.checked)} />Check for updates automatically</label>
+          {/if}
           <p>Free software under the GNU Affero General Public License v3.</p>
           <div class="buttons center">
             <button class="btn" onclick={() => api.openUrl('https://github.com/pebll/braids').catch((e) => store.toastError(e))}>Source code</button>
@@ -276,6 +330,8 @@
 </div>
 
 <style>
+  .update { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 13px; color: var(--text-2); }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
   .settings { width: 760px; height: min(560px, calc(100vh - 32px)); flex-direction: row; }
   nav { width: 180px; flex-shrink: 0; background: var(--surface-2); border-right: 1px solid var(--border); padding: 14px 8px; display: flex; flex-direction: column; gap: 2px; }
   .nav-title { font-size: 12px; color: var(--text-muted); padding: 4px 10px 8px; font-weight: 600; }

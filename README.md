@@ -4,13 +4,13 @@ braids
 braids is an open source desktop messenger for **Telegram, WhatsApp, Signal
 and Matrix** in one app. Website: https://pebll.github.io/braids/
 
-Install (Linux, x86_64; installs to your home folder, no root needed):
+Install (Linux, x86_64 or ARM64; installs to your home folder, no root needed):
 
     curl -fsSL https://pebll.github.io/braids/install.sh | sh
 
-A .deb package and a self-contained archive are attached to every
-[release](https://github.com/pebll/braids/releases). braids is for Linux
-only.
+A .deb package, a Flatpak, an AppImage and a self-contained archive are
+attached to every [release](https://github.com/pebll/braids/releases), for
+x86_64 and aarch64. braids is for Linux only.
 
 braids is based on [nchat](https://github.com/d99kris/nchat) by Kristofer
 Berggren, a terminal messenger. braids keeps nchat's protocol implementations
@@ -48,7 +48,9 @@ libsignal, or builds it from source (Rust, protoc) if unavailable.
 Packaging and releases
 ----------------------
 
-    utils/dist/package-linux     dist/braids-linux-x86_64.tar.gz and a .deb
+    utils/dist/package-linux     dist/braids-linux-<arch>.tar.gz, a .deb, an
+                                 AppImage (--appimage, needs appimagetool)
+    utils/dist/flatpak/          Flatpak manifest (made from the tarball)
     utils/dist/install.sh        the install script (curl ... | sh)
 
 Pushing a tag `vX.Y.Z` (matching the version in `app/src-tauri/tauri.conf.json`)

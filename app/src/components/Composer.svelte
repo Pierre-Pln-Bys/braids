@@ -18,10 +18,10 @@
   import { splitKey, store } from '../lib/store.svelte';
   import { ui } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
 
   let { chatKey }: { chatKey: string } = $props();
 
-  const EMOJI = ['😀', '😂', '🙂', '😉', '😍', '🥰', '😘', '😎', '🤔', '😅', '😭', '😢', '😮', '😡', '🙄', '😴', '👍', '👎', '👏', '🙏', '💪', '👋', '🤝', '✌️', '❤️', '🔥', '🎉', '✨', '⭐', '✅', '❌', '👀', '💯', '🤷', '🤦', '🙌', '☕', '🍕', '🍻', '🚀'];
 
   let text = $state('');
   let attachments = $state<string[]>([]);
@@ -419,11 +419,7 @@
       {/if}
       <button class="icon-btn sm" aria-label="Emoji" title="Emoji" onclick={() => (emojiOpen = !emojiOpen)}><Smile size={19} strokeWidth={1.75} /></button>
       {#if emojiOpen}
-        <div class="emoji-pop" role="dialog" aria-label="Emoji">
-          {#each EMOJI as e}
-            <button onclick={() => insertEmoji(e)}>{e}</button>
-          {/each}
-        </div>
+        <EmojiPicker onPick={insertEmoji} onClose={() => { emojiOpen = false; textarea?.focus(); }} />
       {/if}
     </div>
     {#if !text.trim() && !attachments.length && !ui.edit}
@@ -490,16 +486,10 @@
   }
   .send:hover:not(:disabled) { background: var(--accent-hover); }
   .send:disabled { background: var(--border-strong); color: var(--surface); }
-  .emoji-pop {
-    position: absolute; bottom: 46px; right: 0; width: 296px; padding: 8px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-2); z-index: 10;
-  }
   .mentions {
     position: absolute; bottom: 46px; left: 0; width: 260px; max-height: 280px; overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-2); z-index: 10;
   }
   .mentions button { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 14px; color: var(--text); }
   .mentions button[aria-selected='true'], .mentions button:hover { background: var(--hover); }
-  .emoji-pop button { border: 0; background: none; height: 32px; border-radius: 6px; font-size: 18px; padding: 0; }
-  .emoji-pop button:hover { background: var(--hover); }
 </style>

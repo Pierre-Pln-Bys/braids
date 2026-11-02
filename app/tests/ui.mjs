@@ -52,7 +52,7 @@ const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const errors = [];
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, permissions: ['microphone', 'clipboard-read', 'clipboard-write'] });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('Notification') && errors.push(m.text()));
   const shot = async (name) => shots && (await page.screenshot({ path: path.join(shots, `${name}.png`) }));
@@ -588,6 +588,156 @@ try {
   await page.getByRole('button', { name: 'Dark' }).click();
   check(await page.evaluate(() => document.documentElement.classList.contains('t-dark')), 'dark theme applied');
   await shot('settings-dark');
+
+  // ---- new in 0.2 ----
+  await page.keyboard.press('Escape');
+  const sendFile = (name, b64OrMaker) => page.evaluate(async ([n, data]) => {
+    let blob;
+    if (data === 'webp') {
+      const c = Object.assign(document.createElement('canvas'), { width: 96, height: 96 });
+      const g = c.getContext('2d');
+      g.fillStyle = '#e58a55';
+      g.beginPath(); g.arc(48, 48, 40, 0, Math.PI * 2); g.fill();
+      blob = await new Promise((r) => c.toBlob(r, 'image/webp'));
+    } else {
+      blob = new Blob([Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0))]);
+    }
+    const up = await (await fetch(`/__braids/upload?name=${n}`, { method: 'POST', body: blob })).json();
+    const accounts = await (await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method: 'accounts.list' }) })).json();
+    await fetch('/__braids/call', { method: 'POST', body: JSON.stringify({ method: 'messages.send', params: { accountId: accounts.result[0].accountId, chatId: 'Michael_0', filePath: up.path } }) });
+  }, [name, b64OrMaker]);
+  await page.getByRole('option', { name: /Michael/ }).click();
+
+  // stickers without a bubble, GIFs marked
+  await sendFile('smile.webp', 'webp');
+  await page.locator('.bubble.sticker .sticker img').last().waitFor();
+  check(await page.locator('.bubble.sticker').last().evaluate((el) => getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)'), 'sticker shown without a bubble');
+  await sendFile('dance.gif', 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
+  await page.locator('.msg .gif-badge').last().waitFor();
+  check(true, 'GIF shown with a GIF mark');
+
+  // Ctrl+C: the selection, or the message under the mouse
+  await composer.fill('copy me please');
+  await page.keyboard.press('Enter');
+  const copyMsg = page.locator('.msg.own', { hasText: 'copy me please' }).last();
+  await copyMsg.waitFor();
+  await copyMsg.locator('.msg-text').evaluate((el) => {
+    const r = document.createRange();
+    r.setStart(el.firstChild, 0);
+    r.setEnd(el.firstChild, 7);
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+  });
+  await page.locator('.messages').focus();
+  await page.keyboard.press('Control+c');
+  await page.waitForFunction(async () => (await navigator.clipboard.readText()) === 'copy me');
+  check(true, 'Ctrl+C copies the selected text');
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await copyMsg.hover();
+  await page.keyboard.press('Control+c');
+  await page.locator('.toast', { hasText: 'Message copied' }).waitFor();
+  check(await page.evaluate(() => navigator.clipboard.readText()) === 'copy me please', 'Ctrl+C without a selection copies the hovered message');
+
+  // drag and drop a file into the chat
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
+    window.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await page.locator('.composer', { hasText: 'notes.txt' }).waitFor();
+  check(true, 'dropped file attached to the message');
+  await page.locator('.composer [aria-label^="Remove"]').first().click();
+
+  // emoji picker: search and pick
+  await page.getByRole('button', { name: 'Emoji', exact: true }).click();
+  await page.fill('input[aria-label="Search emoji"]', 'rocket');
+  await page.locator('.picker .em').first().waitFor();
+  await page.keyboard.press('Enter');
+  check((await composer.inputValue()).includes('🚀'), 'emoji picker search inserts the emoji');
+  await composer.fill('');
+
+  // link preview card
+  await page.route('**/__braids/preview?*', (route) => route.fulfill({ json: { url: 'https://example.com/paper', title: 'Paper sales up 12%', description: 'Scranton branch leads the quarter.', siteName: 'Example News', image: '' } }));
+  await composer.fill('read this https://example.com/paper');
+  await page.keyboard.press('Enter');
+  await page.locator('.link-preview', { hasText: 'Paper sales up 12%' }).waitFor();
+  check(await page.locator('.link-preview .lp-site').last().textContent() === 'Example News', 'link preview card shown');
+
+  // pinned messages bar
+  await copyMsg.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Pin' }).click();
+  await page.locator('.pin-bar', { hasText: 'copy me please' }).waitFor();
+  check(true, 'pinned message shown in the bar');
+  await page.locator('.pin-bar [aria-label=Unpin]').click();
+  await page.locator('.pin-bar').waitFor({ state: 'detached' });
+  check(true, 'unpinned message leaves the bar');
+
+  // search through the messages of all chats
+  await page.keyboard.press('Control+Space');
+  await page.keyboard.type('copy me');
+  await page.locator('.found .hit', { hasText: 'copy me please' }).first().waitFor();
+  check(await page.locator('.found .hit mark').first().textContent() === 'copy me', 'message search finds and marks the text');
+  await page.getByRole('option', { name: /The Office/ }).click().catch(() => {});
+  await page.locator('input[aria-label="Search chats"]').fill('copy me');
+  await page.locator('.found .hit', { hasText: 'copy me please' }).first().click();
+  await page.locator('.msg.highlight', { hasText: 'copy me please' }).waitFor();
+  check(true, 'a search result opens the chat at the message');
+  await page.locator('input[aria-label="Search chats"]').fill('');
+
+  // favorites pinned at the top instead of their own folder
+  await page.keyboard.press('Control+,');
+  await page.getByRole('group', { name: 'Favorites' }).getByRole('button', { name: 'On top' }).click();
+  await page.keyboard.press('Escape');
+  check(await page.locator('.sidebar .item', { hasText: 'Favorites' }).count() === 0, 'no Favorites folder with favorites on top');
+  const firstName = await page.locator('.chatlist .row .name').first().textContent();
+  check(await page.evaluate((n) => {
+    const s = window.__braids.store;
+    const c = s.chatList[0];
+    return s.chatName(c) === n && s.category(c) === 'favorite';
+  }, firstName), 'a favorite is first in the chat list');
+  await page.keyboard.press('Control+,');
+  await page.getByRole('group', { name: 'Favorites' }).getByRole('button', { name: 'Folder' }).click();
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar .item', { hasText: 'Favorites' }).waitFor();
+  check(true, 'Favorites folder back');
+
+  // rename an account in the sidebar (double-click)
+  await page.locator('.sidebar .item .label').filter({ hasText: /Dummy/ }).first().dblclick();
+  await page.fill('input[aria-label="Account name"]', 'OCS');
+  await page.keyboard.press('Enter');
+  await page.locator('.sidebar .item .label', { hasText: 'OCS' }).waitFor();
+  check(true, 'account renamed in the sidebar');
+
+  // sidebar collapse and expand buttons
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await page.locator('.sidebar.collapsed').waitFor();
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+  await page.locator('.sidebar:not(.collapsed)').waitFor();
+  check(true, 'sidebar collapses and expands with its buttons');
+
+  // drag the divider to widen the chat list
+  const listW = async () => (await page.locator('.chatlist').boundingBox()).width;
+  const widthBefore = await listW();
+  const sp = await page.locator('.splitter').boundingBox();
+  await page.mouse.move(sp.x + sp.width / 2, sp.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(sp.x + sp.width / 2 + 100, sp.y + 200, { steps: 5 });
+  await page.mouse.up();
+  check(Math.abs((await listW()) - widthBefore - 100) <= 2, 'chat list resized at the divider');
+  await page.locator('.splitter').dblclick();
+
+  // new group
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await page.getByRole('tab', { name: 'New group' }).click();
+  await page.fill('input[aria-label="Group name"]', 'Road trip');
+  await page.getByRole('checkbox', { name: /Jim/ }).click();
+  await page.getByRole('checkbox', { name: /Pam/ }).click();
+  await page.getByRole('button', { name: 'Create group' }).click();
+  await page.locator('main.conv header', { hasText: 'Road trip' }).waitFor();
+  check(await page.getByRole('option', { name: /Road trip/ }).count() === 1, 'new group created and opened');
+  await shot('new-group');
+  await page.keyboard.press('Control+,');
 
   // remove account
   await page.getByRole('button', { name: 'Accounts' }).click();

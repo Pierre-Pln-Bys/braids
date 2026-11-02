@@ -5,11 +5,11 @@
 
   braids is distributed under the GNU AGPL v3 license, see LICENSE for details.
 
-  Start a chat with a contact of one of the accounts, or join a group by
-  invite link / address.
+  Start a chat with a contact of one of the accounts, create a group, or
+  join a group by invite link / address.
 -->
 <script lang="ts">
-  import { Link, LoaderCircle, Search, X } from '@lucide/svelte';
+  import { Check, Link, LoaderCircle, Search, Users, X } from '@lucide/svelte';
   import { tick } from 'svelte';
   import * as api from '../lib/api';
   import { chatKey, store } from '../lib/store.svelte';
@@ -26,7 +26,7 @@
   // a link clicked in a message opens the dialog on "Join a group"
   const fromLink = ui.joinLink;
   ui.joinLink = '';
-  let mode = $state<'contact' | 'join'>(fromLink ? 'join' : 'contact');
+  let mode = $state<'contact' | 'group' | 'join'>(fromLink ? 'join' : 'contact');
   let link = $state(fromLink);
   let joinError = $state('');
   let linkInput: HTMLInputElement | undefined = $state();
@@ -58,6 +58,43 @@
   $effect(() => {
     if (mode === 'join') tick().then(() => linkInput?.focus());
   });
+
+  // group mode
+  const groupAccounts = $derived(store.accountList.filter((a) => a.capabilities.createGroup));
+  let groupName = $state('');
+  let members = $state<string[]>([]);
+  let groupError = $state('');
+  let nameInput: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    if (mode !== 'group') return;
+    if (!groupAccounts.some((a) => a.accountId === accountId) && groupAccounts.length) accountId = groupAccounts[0].accountId;
+    tick().then(() => nameInput?.focus());
+  });
+
+  // members belong to one account
+  $effect(() => {
+    void accountId;
+    members = [];
+  });
+
+  function toggleMember(id: string) {
+    members = members.includes(id) ? members.filter((m) => m !== id) : [...members, id];
+  }
+
+  async function createGroup() {
+    if (!groupName.trim() || !members.length) return;
+    groupError = '';
+    busy = 'group';
+    try {
+      await store.createGroup(accountId, groupName, members);
+      ui.newChatOpen = false;
+    } catch (e) {
+      groupError = (e as Error).message;
+    } finally {
+      busy = '';
+    }
+  }
 
   async function join() {
     if (!link.trim() || !accountId) return;
@@ -113,16 +150,60 @@
 <div class="scrim" role="presentation" onclick={(e) => e.target === e.currentTarget && (ui.newChatOpen = false)}>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="newchat-title">
     <div class="dialog-head">
-      <h2 id="newchat-title">{mode === 'join' ? 'Join a group' : 'New chat'}</h2>
+      <h2 id="newchat-title">{mode === 'join' ? 'Join a group' : mode === 'group' ? 'New group' : 'New chat'}</h2>
       <button class="icon-btn" aria-label="Close" onclick={() => (ui.newChatOpen = false)}><X size={18} /></button>
     </div>
     <div class="dialog-body">
       <div class="modes" role="tablist">
         <button role="tab" aria-selected={mode === 'contact'} onclick={() => (mode = 'contact')}>Message a contact</button>
+        <button role="tab" aria-selected={mode === 'group'} onclick={() => (mode = 'group')} disabled={!groupAccounts.length}
+          title={groupAccounts.length ? undefined : 'None of your accounts can create groups'}>New group</button>
         <button role="tab" aria-selected={mode === 'join'} onclick={() => (mode = 'join')} disabled={!joinAccounts.length}
           title={joinAccounts.length ? undefined : 'None of your accounts can join groups by link'}>Join a group</button>
       </div>
-      {#if mode === 'join'}
+      {#if mode === 'group'}
+        <div class="accounts">
+          {#each groupAccounts as a (a.accountId)}
+            <button class="acct" aria-pressed={a.accountId === accountId} onclick={() => (accountId = a.accountId)}>
+              <ProtocolBadge protocol={a.protocol} color={store.accountColor(a.accountId)} size={16} />{store.accountName(a.accountId)}
+            </button>
+          {/each}
+        </div>
+        <form class="join" onsubmit={(e) => { e.preventDefault(); createGroup(); }}>
+          <label class="search">
+            <Users size={16} />
+            <input bind:this={nameInput} bind:value={groupName} placeholder="Group name" aria-label="Group name" maxlength="100" oninput={() => (groupError = '')} />
+          </label>
+          {#if members.length}
+            <div class="chosen" aria-label="Members">
+              {#each members as id (id)}
+                {@const c = store.contacts[accountId]?.[id]}
+                <button type="button" class="chip" onclick={() => toggleMember(id)} title="Remove">{c?.name || id}<X size={12} /></button>
+              {/each}
+            </div>
+          {/if}
+          <label class="search">
+            <Search size={16} />
+            <input bind:value={query} placeholder="Add members" aria-label="Search members" />
+          </label>
+          <div class="list scroll short">
+            {#each contacts as c (c.id)}
+              {@const on = members.includes(c.id)}
+              <button type="button" class="contact" role="checkbox" aria-checked={on} onclick={() => toggleMember(c.id)}>
+                <Avatar name={c.name || c.id} id={c.id} size={32} owner={accountId} />
+                <span class="cname">{c.name || c.id}<small>{c.phone || (c.name ? c.id : '')}</small></span>
+                <span class="tick" class:on>{#if on}<Check size={14} />{/if}</span>
+              </button>
+            {:else}
+              <p class="empty">{query ? 'No matching contacts.' : 'No contacts for this account yet.'}</p>
+            {/each}
+          </div>
+          {#if groupError}<p class="error" role="alert">{groupError}</p>{/if}
+          <button class="btn primary" type="submit" disabled={!groupName.trim() || !members.length || busy === 'group'}>
+            {#if busy === 'group'}<LoaderCircle size={16} class="spin" />Creating…{:else}Create group{/if}
+          </button>
+        </form>
+      {:else if mode === 'join'}
         <div class="accounts">
           {#each joinAccounts as a (a.accountId)}
             <button class="acct" aria-pressed={a.accountId === accountId} onclick={() => (accountId = a.accountId)}>
@@ -198,5 +279,10 @@
   .join .btn { align-self: flex-end; }
   .hint { font-size: 12px; color: var(--text-muted); margin: 0; }
   .error { font-size: 13px; color: var(--danger); margin: 0; }
+  .list.short { max-height: 260px; }
+  .chosen { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px 0 10px; border-radius: 999px; border: 0; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; }
+  .tick { width: 20px; height: 20px; border-radius: 10px; border: 1.5px solid var(--border-strong); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .tick.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .linkish { align-self: flex-start; border: 0; background: none; padding: 0; font-size: 12px; color: var(--accent); }
 </style>

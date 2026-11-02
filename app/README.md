@@ -42,6 +42,11 @@ running when the app quits. Environment:
 | `BRAIDS_SOCKET` | socket path (`--socket`) |
 | `BRAIDSD` | braidsd binary to start |
 
+Only one app runs per profile: starting braids again brings the running
+window to the front (`tauri-plugin-single-instance`, over D-Bus). An app with
+`BRAIDS_CONFDIR` or `BRAIDS_SOCKET` set is a separate profile and may run next
+to it.
+
 Without the Tauri shell, the UI also runs in a normal browser against a running
 braidsd, through a dev bridge in the Vite server (`dev/bridge.ts`):
 
@@ -87,7 +92,7 @@ Layout
 - `src-tauri/src/daemon.rs` — socket client: start/reconnect braidsd, requests
   with replies, events to the UI, restart of a braidsd older than its binary.
   `lib.rs` — commands, tray (one colored strand per unread chat, all three
-  from 3; icons from `scripts/tray-icons.sh`), close-to-tray.
+  from 3; icons from `scripts/tray-icons.sh`), close-to-tray, single instance.
 
 Known gaps (v1)
 ---------------

@@ -799,8 +799,9 @@ static std::string ResetFailedDownloadFileInfo(const std::string& p_FileInfo);
 
 std::vector<std::pair<std::string, ChatMessage>> MessageCache::FetchMediaSync(const std::string& p_ProfileId,
                                                                               const std::string& p_ChatId,
-                                                                              bool p_Links, int64_t p_BeforeTime,
-                                                                              int p_Limit)
+                                                                              const std::string& p_Kind,
+                                                                              const std::string& p_Text,
+                                                                              int64_t p_BeforeTime, int p_Limit)
 {
   std::vector<std::pair<std::string, ChatMessage>> result;
   if (!m_CacheEnabled) return result;
@@ -808,16 +809,43 @@ std::vector<std::pair<std::string, ChatMessage>> MessageCache::FetchMediaSync(co
   std::unique_lock<std::mutex> lock(m_DbMutex);
   if (!m_Dbs[p_ProfileId]) return result;
 
-  const std::string filter = p_Links ? "(text LIKE '%://%' OR text LIKE '%www.%')" : "COALESCE(fileInfo, '') != ''";
+  std::string filter;
+  std::string pattern; // LIKE pattern for "search", '' otherwise
+  if (p_Kind == "links")
+  {
+    filter = "(text LIKE '%://%' OR text LIKE '%www.%')";
+  }
+  else if (p_Kind == "pinned")
+  {
+    filter = "COALESCE(isPinned, 0) = 1";
+  }
+  else if (p_Kind == "search")
+  {
+    filter = "COALESCE(text, '') != ''";
+    pattern = "%";
+    for (char ch : p_Text)
+    {
+      if ((ch == '%') || (ch == '_') || (ch == '\\')) pattern += '\\';
+      pattern += ch;
+    }
+    pattern += "%";
+  }
+  else
+  {
+    filter = "COALESCE(fileInfo, '') != ''";
+  }
+
   try
   {
     // *INDENT-OFF*
     *m_Dbs[p_ProfileId] <<
-      "SELECT chatId, id, senderId, text, fileInfo, timeSent, isOutgoing, isRead FROM " + s_TableMessages +
+      "SELECT chatId, id, senderId, text, fileInfo, timeSent, isOutgoing, isRead, COALESCE(isPinned, 0) FROM " +
+      s_TableMessages +
       " WHERE COALESCE(isDeleted, 0) = 0 AND timeSent < ? AND (? = '' OR chatId = ?) AND " + filter +
-      " ORDER BY timeSent DESC LIMIT ?;" << p_BeforeTime << p_ChatId << p_ChatId << p_Limit >>
+      " AND (? = '' OR text LIKE ? ESCAPE '\\')" +
+      " ORDER BY timeSent DESC LIMIT ?;" << p_BeforeTime << p_ChatId << p_ChatId << pattern << pattern << p_Limit >>
       [&](const std::string& chatId, const std::string& id, const std::string& senderId, const std::string& text,
-          const std::string& fileInfo, int64_t timeSent, int32_t isOutgoing, int32_t isRead)
+          const std::string& fileInfo, int64_t timeSent, int32_t isOutgoing, int32_t isRead, int32_t isPinned)
       {
         ChatMessage chatMessage;
         chatMessage.id = id;
@@ -827,6 +855,7 @@ std::vector<std::pair<std::string, ChatMessage>> MessageCache::FetchMediaSync(co
         chatMessage.timeSent = timeSent;
         chatMessage.isOutgoing = isOutgoing;
         chatMessage.isRead = isRead;
+        chatMessage.isPinned = isPinned;
         result.push_back(std::make_pair(chatId, chatMessage));
       };
     // *INDENT-ON*

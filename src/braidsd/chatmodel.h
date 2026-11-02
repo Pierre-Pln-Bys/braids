@@ -71,11 +71,13 @@ public:
   json GetAvatars(const std::string& p_AccountId, const std::vector<std::string>& p_Ids);
   json GetDescriptions(const std::string& p_AccountId, const std::vector<std::string>& p_Ids);
   void JoinChat(const std::string& p_AccountId, const std::string& p_Link);
-  // shared media of a chat, or of all chats (p_AccountId and/or p_ChatId
-  // empty); p_Kind "media", "files" or "links"
+  // messages of a chat, or of all chats (p_AccountId and/or p_ChatId empty),
+  // newest first: p_Kind "media", "files", "links", "pinned", or "search"
+  // (text contains p_Text)
   json GetMedia(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Kind,
-                int64_t p_BeforeTime, int p_Limit);
+                int64_t p_BeforeTime, int p_Limit, const std::string& p_Text = "");
   void CreateChat(const std::string& p_AccountId, const std::string& p_UserId);
+  void CreateGroup(const std::string& p_AccountId, const std::string& p_Name, const std::vector<std::string>& p_UserIds);
   void PinChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsPinned);
   void ArchiveChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsArchived);
   void MuteChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsMuted);

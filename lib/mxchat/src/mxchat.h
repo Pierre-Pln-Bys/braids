@@ -69,6 +69,7 @@ private:
   void CallMessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMessage);
   void PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage);
   bool RunRecoveryPrompt(bool p_IsSetup);
+  std::string SsoLogin(const std::string& p_Homeserver);
 
 private:
   std::string m_ProfileId;
@@ -116,6 +117,7 @@ void MxNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
 void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
 void MxNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 void MxJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
+void MxCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);
 void MxDeleteChatNotify(int p_ConnId, char* p_ChatId);
 void MxDeleteMessageNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsOutgoing);
 void MxUpdateMuteNotify(int p_ConnId, char* p_ChatId, int p_IsMuted);

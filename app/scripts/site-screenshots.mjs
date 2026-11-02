@@ -75,12 +75,17 @@ async function session(theme, shots) {
     // the showcase accounts appear as the messengers they stand for
     await page.route('**/__braids/call', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
-      if (body.method !== 'accounts.list') return route.continue();
+      if (body.method !== 'accounts.list' && body.method !== 'hello') return route.continue();
       const response = await route.fetch();
       const reply = await response.json();
-      for (const a of reply.result ?? []) {
-        const persona = a.accountId.slice(-1);
-        if (PERSONAS[persona]) a.protocol = PERSONAS[persona];
+      if (body.method === 'hello') {
+        // the add-account picker offers the four messengers
+        if (reply.result) reply.result.protocols = Object.values(PERSONAS);
+      } else {
+        for (const a of reply.result ?? []) {
+          const persona = a.accountId.slice(-1);
+          if (PERSONAS[persona]) a.protocol = PERSONAS[persona];
+        }
       }
       await route.fulfill({ response, json: reply });
     });
@@ -123,17 +128,25 @@ async function saveClip(page, name, selectors, margin = 24) {
 
 await session('light', async (page) => {
   await save(page, 'inbox-light');
-  // forward anywhere: a Telegram group message to a chat of another messenger
-  await page.locator('.msg:not(.own)', { hasText: 'storm your village' }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Forward…' }).click();
-  await page.locator('[role=dialog] .target').nth(5).waitFor();
-  await page.waitForTimeout(400);
-  await saveClip(page, 'forward-light', ['[role=dialog][aria-labelledby=forward-title]'], 0);
-  await page.keyboard.press('Escape');
 });
 
 await session('dark', async (page) => {
   await save(page, 'inbox-dark');
+  // forward anywhere: a Telegram group message to a chat of another messenger
+  await page.locator('.msg:not(.own)', { hasText: 'storm your village' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Forward…' }).click();
+  await page.locator('[role=dialog][aria-labelledby=forward-title] .target').nth(5).waitFor();
+  // short: three chats, of three messengers (Telegram, WhatsApp, Signal)
+  await page.addStyleTag({ content: '[aria-labelledby=forward-title] .target:is(:nth-of-type(2), :nth-of-type(n+5)) { display: none !important; }' });
+  await page.waitForTimeout(400);
+  await saveClip(page, 'forward-dark', ['[role=dialog][aria-labelledby=forward-title]'], 0);
+  await page.keyboard.press('Escape');
+  // linking an account: the add-account dialog
+  await page.getByTitle('Add account').click();
+  await page.locator('[role=dialog][aria-labelledby=wizard-title] .proto').nth(3).waitFor();
+  await page.waitForTimeout(400);
+  await saveClip(page, 'link-dark', ['[role=dialog][aria-labelledby=wizard-title]'], 0);
+  await page.keyboard.press('Escape');
 });
 
 console.log(`screenshots in ${out}`);

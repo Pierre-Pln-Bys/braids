@@ -15,3 +15,6 @@ app/test-results/
 
 # local secrets (Telegram API credentials, see .env.example)
 /.env
+/build-flatpak
+/.flatpak-builder
+/utils/dist/flatpak/shared-modules

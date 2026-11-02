@@ -25,7 +25,7 @@
   import Sidebar from './components/Sidebar.svelte';
   import Welcome from './components/Welcome.svelte';
   import Wizard from './components/Wizard.svelte';
-  import { editLastOwnMessage } from './lib/actions';
+  import { copyShortcut, editLastOwnMessage } from './lib/actions';
   import * as api from './lib/api';
   import { ACCOUNT_ACTIONS, actionFor, type Action } from './lib/keybinds.svelte';
   import { settings } from './lib/settings.svelte';
@@ -51,6 +51,7 @@
     const onResize = () => (ui.width = window.innerWidth);
     window.addEventListener('resize', onResize);
     api.setCloseToTray(settings.closeToTray);
+    if (settings.checkUpdates) setTimeout(() => store.checkUpdates(), 20000);
     api.onFileDrop(
       (paths) => {
         if (store.current && paths.length) conversation?.addFiles(paths);
@@ -59,6 +60,33 @@
     );
     return () => window.removeEventListener('resize', onResize);
   });
+
+  // chat list width
+  const MIN_LIST = 240;
+  const MAX_LIST = 560;
+  function setListWidth(w: number) {
+    settings.chatListWidth = Math.round(Math.min(MAX_LIST, Math.max(MIN_LIST, w)));
+    settings.save();
+  }
+
+  function startResize(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startW = settings.chatListWidth;
+    document.body.classList.add('resizing');
+    const move = (ev: PointerEvent) => {
+      settings.chatListWidth = Math.round(Math.min(MAX_LIST, Math.max(MIN_LIST, startW + ev.clientX - startX)));
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      document.body.classList.remove('resizing');
+      settings.save();
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  }
 
   function moveChat(delta: number) {
     const list = store.chatList;
@@ -122,6 +150,7 @@
         store.filter = { kind: 'all' };
         return true;
       case 'goFavorites':
+        if (settings.favorites === 'top') return false;
         store.filter = { kind: 'favorites' };
         return true;
       case 'goMatrix':
@@ -137,6 +166,10 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (copyShortcut(e)) {
+      e.preventDefault();
+      return;
+    }
     const modal = ui.settingsOpen || ui.newChatOpen || !!ui.forward || !!ui.media || !!store.wizardSetupId || !!ui.confirmRequest || !!ui.lightbox || ui.recordingKeys;
     if (modal) {
       // no browser actions (print, new window, ...) behind a dialog either
@@ -170,12 +203,21 @@
     {#if everConnected && !store.connected}
       <div class="conn"><LoaderCircle size={14} class="spin" />Reconnecting to braids core…</div>
     {/if}
-    <div class="main">
+    <div class="main" style:--chatlist-w="{settings.chatListWidth}px">
       {#if !ui.narrow}
         <Sidebar />
       {/if}
       {#if !ui.narrow || !store.current}
         <ChatList />
+      {/if}
+      {#if !ui.narrow}
+        <!-- drag to make the chat list wider or narrower; double-click resets
+             (a focusable separator is the ARIA window splitter pattern) -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <div class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize the chat list" tabindex="0"
+          aria-valuemin={MIN_LIST} aria-valuemax={MAX_LIST} aria-valuenow={settings.chatListWidth}
+          onpointerdown={startResize} ondblclick={() => setListWidth(330)}
+          onkeydown={(e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setListWidth(settings.chatListWidth + (e.key === 'ArrowLeft' ? -20 : 20)); } }}></div>
       {/if}
       {#if store.current && store.currentChat}
         <Conversation bind:this={conversation} chatKey={store.current} />
@@ -212,6 +254,11 @@
 <style>
   .frame { height: 100%; display: flex; flex-direction: column; }
   .main { flex: 1; min-height: 0; display: flex; position: relative; }
+  /* a thin hit area over the chat list's border */
+  .splitter { width: 7px; margin: 0 -4px 0 -3px; flex-shrink: 0; cursor: col-resize; z-index: 5; position: relative; outline: none; }
+  .splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background var(--duration-fast); }
+  .splitter:hover::after, .splitter:focus-visible::after, :global(body.resizing) .splitter::after { background: var(--accent); width: 2px; }
+  :global(body.resizing) { cursor: col-resize; user-select: none; }
   .conn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px; font-size: 12px; background: var(--warning-soft); color: var(--text); }
   .no-chat { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-muted); background: var(--bg-2); text-align: center; }
   .no-chat p { margin: 0; font-size: 13px; }

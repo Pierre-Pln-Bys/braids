@@ -19,6 +19,7 @@ export interface Capabilities {
   avatars: boolean;
   descriptions: boolean;
   joinChat: boolean;
+  createGroup: boolean;
   muteChat: boolean;
 }
 
@@ -38,6 +39,7 @@ export interface FileRef {
   path: string;
   name: string;
   mimeType: string;
+  kind?: '' | 'sticker' | 'gif'; // shown without a bubble / muted and looping
   status: 'none' | 'notDownloaded' | 'downloading' | 'downloaded' | 'failed';
 }
 

@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.8.0` (milestone M3). The API is JSON-RPC 2.0
+Status: draft, API version `0.9.0`. The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -57,7 +57,7 @@ Objects
      "capabilities": {"editWindowSec": -1 (unlimited) | 0 (none) | seconds,
                       "pinChat", "archiveChat", "pinMessage",
                       "limitedReactions", "readReceiptsPerMessage",
-                      "avatars", "descriptions", "joinChat", "muteChat"}}
+                      "avatars", "descriptions", "joinChat", "createGroup", "muteChat"}}
 
 **Chat**
 
@@ -81,7 +81,7 @@ muted chat); with neither known, `unreadCount` is 1. `isUnread` is also true for
     {"accountId", "chatId", "id", "senderId", "senderName", "text", "time",
      "isOutgoing", "isRead", "isEdited", "isDeleted", "isPinned", "hasMention",
      "quoted": {"id", "text", "senderId", "senderName"} | null,
-     "file": {"id", "path", "name", "mimeType",
+     "file": {"id", "path", "name", "mimeType", "kind": "" | "sticker" | "gif",
               "status": "none|notDownloaded|downloading|downloaded|failed"} | null,
      "reactions": {"counts": {emoji: n}, "senders": {userId: emoji}, "own": emoji},
      "mentions": {displayName: userId}, "link", "system"}
@@ -92,6 +92,13 @@ renamed the group, ...): a phrase to follow the sender's name, e.g.
 (several joined by `"; "`). Clients show these as event lines rather than
 bubbles; `text` keeps the protocol's form (`[Joined]`). They send no
 `notification`.
+
+`file.kind` is `"sticker"` for stickers (shown without a bubble; WebP
+images and Telegram's `.tgs` animated stickers, `application/x-tgsticker`,
+always count as stickers; their `text` is the sticker's emoji) and `"gif"`
+for GIFs and animations without sound (shown muted and looping). Telegram
+marks them with a `braids=` parameter on the file type, WhatsApp, Signal
+and Matrix in the file name (`x.sticker.webp`, `x.gif.mp4`).
 
 `text` uses the internal markdown-like format (`*bold*`, `_italic_`,
 `~strike~`, `` `code` ``, mentions as `@Name` / `@[Name With Spaces]`);
@@ -116,6 +123,7 @@ Methods
 | `chats.setCurrent` | `accountId`, `chatId` | `{}`; tells the protocol which chat is open, requests presence |
 | `chats.create` | `accountId`, `userId` | `{}`, then `chat.created` |
 | `chats.join` | `accountId`, `link` (invite link, public name or address: `https://t.me/+…`, `@name`, `https://chat.whatsapp.com/…`, `#room:server`, `https://matrix.to/#/…`; capability `joinChat`) | `{}`, then `chat.joined` |
+| `chats.createGroup` | `accountId`, `name`, `userIds` (contact ids, at least one; capability `createGroup`) | `{}`, then `chat.groupCreated` |
 | `chats.pin` | `accountId`, `chatId`, `isPinned`? (true) | `{}` (error 4 if unsupported) |
 | `chats.archive` | `accountId`, `chatId`, `isArchived`? (true) | `{}` (error 4 if unsupported) |
 | `chats.mute` | `accountId`, `chatId`, `isMuted`? (true) | `{}`, then `chat.updated`; kept by braidsd for every protocol (the messenger's own setting is not changed) |
@@ -124,7 +132,8 @@ Methods
 | `contacts.list` | `accountId` | `[Contact]` |
 | `avatars.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, avatars: {id: path}}` with the known ones (`""`: no picture); the others are fetched once per session and arrive as `avatar.updated` |
 | `descriptions.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, descriptions: {id: text}}` (group description or user bio; for a one-to-one chat the other user's) with the known ones (`""`: none); the others are fetched once per session and arrive as `description.updated` |
-| `media.list` | `kind` (`media`: images and videos, `files`, `links`), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`? (ms, from `nextBefore`), `limit`? (60, max 200) | `{items: [Message] newest first, nextBefore}` (`nextBefore` 0: no more); from the history cache and the loaded messages, `files.download` works for these too |
+| `media.list` | `kind` (`media`: images and videos, stickers not included, `files`, `links`, `pinned`: pinned messages), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`? (ms, from `nextBefore`), `limit`? (60, max 200) | `{items: [Message] newest first, nextBefore}` (`nextBefore` 0: no more); from the history cache and the loaded messages, `files.download` works for these too |
+| `messages.search` | `text` (case-insensitive for ASCII letters), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`?, `limit`? (40, max 200) | `{items: [Message] newest first, nextBefore}` like `media.list`; group events are left out |
 | `members.get` | `accountId`, `chatId` | `{accountId, chatId, members: [Contact]}` (async) |
 | `messages.get` | `accountId`, `chatId`, `fromMsgId`? (latest), `limit`? (30) | `{accountId, chatId, fromMsgId, messages: [Message] oldest first, timedOut}` (async, from cache or server) |
 | `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute), `isVoice`? (false; the file, Ogg/Opus, is sent as a voice note: WhatsApp PTT, Telegram voice note, Signal voice message, Matrix MSC3245 voice) | `{}`; the message arrives as `message.added` |
@@ -158,6 +167,7 @@ Events
 | `chat.updated` | `Chat` (new or changed) |
 | `chat.created` | `{accountId, chatId}` (after `chats.create`) |
 | `chat.joined` | `{accountId, link, success, chatId, error}` (after `chats.join`; `error` is a message for the user) |
+| `chat.groupCreated` | `{accountId, name, success, chatId, error}` (after `chats.createGroup`; the new chat also arrives as `chat.updated`) |
 | `chat.removed` | `{accountId, chatId}` |
 | `chat.moved` | `{accountId, chatId, newChatId}` (e.g. Telegram group upgraded) |
 | `contacts.updated` | `{accountId, fullSync, contacts: [Contact]}` |
@@ -199,7 +209,7 @@ The flow ends with `account.added` or `account.setupFailed`.
 | Telegram | `phone`, QR code (or code via `USE_PAIRING_CODE`), `code`, `password` (2FA), `firstName`/`lastName` (new accounts) |
 | WhatsApp | `phone`, QR code or pairing code (`USE_PAIRING_CODE`), `passkeyResponse` and `confirm` for passkey-locked accounts |
 | Signal | `phone`, QR code |
-| Matrix | `userId`, `homeserver` (default discovered), `password`, `recoveryKey` (optional; `never` stops asking) |
+| Matrix | `userId`, `homeserver` (default discovered), `password`, `recoveryKey` (optional; `never` stops asking). With single sign-on (SAML, OpenID Connect, ... at the homeserver) `password` is optional (empty: sign in in the browser) or not asked; an `info` step then has the sign-in URL in `data` (clients open it), and braidsd waits for the browser to come back |
 
 After setup, the same events with `accountId` instead of `setupId` are used
 for prompts at runtime, e.g. Telegram re-authentication or the Matrix

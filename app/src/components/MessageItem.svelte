@@ -10,13 +10,16 @@
 -->
 <script lang="ts">
   import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
-  import { openLink } from '../lib/actions';
+  import { copyText, openLink } from '../lib/actions';
   import * as api from '../lib/api';
-  import { isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
+  import { firstLink, isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
+  import { settings } from '../lib/settings.svelte';
   import { chatKey, fileMime, fileReady, galleryItems, store } from '../lib/store.svelte';
   import type { Account, Chat, Message } from '../lib/types';
   import { openLightbox, ui, type MenuItem } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
+  import LinkPreview from './LinkPreview.svelte';
+  import Sticker from './Sticker.svelte';
   import VoicePlayer from './VoicePlayer.svelte';
 
   let {
@@ -44,9 +47,15 @@
   const isImage = $derived(mime.startsWith('image/'));
   const isVideo = $derived(mime.startsWith('video/'));
   const isAudio = $derived(mime.startsWith('audio/'));
+  const isSticker = $derived(m.file?.kind === 'sticker' && !m.isDeleted);
+  const isGif = $derived(m.file?.kind === 'gif');
+  // a sticker's text is its emoji (or a placeholder): shown as the sticker's label only
+  const stickerEmoji = $derived(isSticker && (isOnlyEmoji(m.text) || /^\[sticker\]$/i.test(m.text.trim())) ? m.text.trim() : '');
   let videoFailed = $state(false); // no preview: shown as a file to open externally
   const ready = $derived(fileReady(m.file));
   const emojiOnly = $derived(!m.file && !m.quoted && !m.isDeleted && isOnlyEmoji(m.text));
+  const showText = $derived(!!m.text && !(isSticker && stickerEmoji));
+  const previewUrl = $derived(settings.linkPreviews && !m.isDeleted && !m.file ? firstLink(m.text) : '');
   const html = $derived(m.isDeleted ? '' : renderText(m.text, m.mentions, account.selfId));
   const reactions = $derived(Object.entries(m.reactions.counts).filter(([, n]) => n > 0));
   const mentionsMe = $derived(!own && (m.hasMention || Object.values(m.mentions).includes(account.selfId)));
@@ -68,7 +77,7 @@
 
   // images, videos and voice messages are fetched right away, other files on request
   $effect(() => {
-    if ((isImage || isVideo || isAudio) && m.file?.status === 'notDownloaded' && !requestedDownload) {
+    if ((isImage || isVideo || isAudio || isSticker) && m.file?.status === 'notDownloaded' && !requestedDownload) {
       requestedDownload = true;
       download();
     }
@@ -155,7 +164,7 @@
   // actions after react and reply, in the order the hover bar adds them
   function extraItems(): MenuItem[] {
     const items: MenuItem[] = [];
-    if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => navigator.clipboard.writeText(m.text).catch(() => {}) });
+    if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => copyText(m.text, 'Copied') });
     if (m.file) items.push({ label: 'Download file', icon: Download, run: saveFile });
     items.push({ label: 'Forward…', icon: Forward, run: () => (ui.forward = m) });
     if (account.capabilities.pinMessage) items.push(pinItem());
@@ -175,7 +184,7 @@
     if (m.isDeleted) return [{ label: 'Remove', icon: Trash2, danger: true, run: remove }];
     const items: MenuItem[] = [{ label: 'Reply', icon: Reply, run: reply }];
     if (editState.show) items.push({ label: 'Edit', icon: Pencil, run: edit, disabled: !editState.ok, hint: editState.reason });
-    if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => navigator.clipboard.writeText(m.text).catch(() => {}) });
+    if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => copyText(m.text, 'Copied') });
     if (m.file) items.push({ label: 'Download file', icon: Download, run: saveFile });
     items.push({ label: 'Forward…', icon: Forward, run: () => (ui.forward = m) });
     if (account.capabilities.pinMessage) items.push(pinItem());
@@ -213,6 +222,8 @@
   class:highlight={ui.highlightId === m.id}
   data-msg-id={m.id}
   oncontextmenu={showMenu}
+  onmouseenter={() => (ui.hoverMessage = m)}
+  onmouseleave={() => ui.hoverMessage === m && (ui.hoverMessage = null)}
   role="article"
   aria-label={`${store.senderName(m)}, ${timeOfDay(m.time)}`}
 >
@@ -232,6 +243,7 @@
       class:mention={mentionsMe}
       class:deleted={m.isDeleted}
       class:has-image={(isImage || isVideo) && ready}
+      class:sticker={isSticker}
     >
       {#if showName}
         <div class="sender" style:color={senderColor(m.senderId)}>{store.senderName(m)}</div>
@@ -245,9 +257,19 @@
       {/if}
 
       {#if m.file && !m.isDeleted}
-        {#if isImage && ready}
-          <button class="image" onclick={openFile} aria-label="Open image {m.file.name}">
+        {#if isSticker}
+          <Sticker file={m.file} emoji={stickerEmoji} />
+        {:else if isGif && isVideo && ready && !videoFailed}
+          <!-- a GIF (a video without sound): plays muted and looping in the chat -->
+          <button class="image gif" onclick={openFile} aria-label="Open GIF {m.file.name}">
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video src={api.fileUrl(m.file.path)} autoplay loop muted playsinline onerror={() => (videoFailed = true)}></video>
+            <span class="gif-badge">GIF</span>
+          </button>
+        {:else if isImage && ready}
+          <button class="image" class:gif={isGif} onclick={openFile} aria-label="Open image {m.file.name}">
             <img src={api.fileUrl(m.file.path)} alt={m.file.name} loading="lazy" />
+            {#if isGif}<span class="gif-badge">GIF</span>{/if}
           </button>
         {:else if isAudio}
           <VoicePlayer path={ready ? m.file.path : ''} id={m.id} status={m.file.status} onDownload={download} />
@@ -278,10 +300,11 @@
 
       {#if m.isDeleted}
         <span class="text deleted-text">Message deleted</span>
-      {:else if m.text}
+      {:else if showText}
         <!-- eslint-disable-next-line svelte/no-at-html-tags: renderText escapes all input -->
         <span class="text msg-text" onclick={onTextClick} role="presentation">{@html html}</span>
       {/if}
+      {#if previewUrl}<LinkPreview url={previewUrl} />{/if}
 
       <span class="meta">
         {#if m.isPinned}<Pin size={11} />{/if}
@@ -361,6 +384,15 @@
   }
   .video-thumb:hover .play-mark { background: rgb(0 0 0 / 0.7); }
   .image img { display: block; max-width: 100%; max-height: 320px; border-radius: 12px; min-width: 120px; object-fit: cover; }
+  .gif { position: relative; }
+  .gif video { display: block; max-width: 100%; max-height: 320px; min-width: 120px; border-radius: 12px; background: #000; }
+  .gif-badge {
+    position: absolute; left: 8px; top: 8px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+    background: rgb(0 0 0 / 0.55); color: #fff; pointer-events: none;
+  }
+  /* stickers stand on their own, like big emoji */
+  .bubble.sticker { background: transparent; box-shadow: none; padding: 0; }
+  .bubble.sticker .meta { align-self: flex-end; padding: 1px 6px; border-radius: 8px; background: color-mix(in srgb, var(--surface) 80%, transparent); }
 
   .file {
     display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 10px;

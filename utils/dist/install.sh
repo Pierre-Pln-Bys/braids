@@ -19,7 +19,7 @@
 #   --purge       remove braids and ~/.config/braids
 #
 # Environment:
-#   BRAIDS_TARBALL   install from this local braids-linux-x86_64.tar.gz instead
+#   BRAIDS_TARBALL   install from this local braids-linux-<arch>.tar.gz instead
 #                    of downloading the latest release
 #   BRAIDS_VERSION   a release tag (e.g. v0.2.0) instead of the latest
 
@@ -35,9 +35,20 @@ ICONS="${DATA}/icons/hicolor"
 say() { printf '%s\n' "$*"; }
 die() { printf 'braids install: %s\n' "$*" >&2; exit 1; }
 
+# GNOME and others read icons through the icon cache when the folder has one
+# (often created by other apps): new icons only show after it is rebuilt
+refresh_desktop() {
+  if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "${ICONS}" ]; then
+    gtk-update-icon-cache -q -f -t "${ICONS}" >/dev/null 2>&1 || true
+  fi
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "${APPS}" >/dev/null 2>&1 || true
+}
+
 uninstall() {
   rm -rf "${DEST}"
-  rm -f "${BIN}/braids" "${APPS}/braids.desktop" "${ICONS}/128x128/apps/braids.png" "${ICONS}/256x256/apps/braids.png"
+  rm -f "${BIN}/braids" "${APPS}/braids.desktop" "${ICONS}/128x128/apps/braids.png" "${ICONS}/256x256/apps/braids.png" \
+    "${ICONS}/scalable/apps/braids.svg"
+  refresh_desktop
   say "braids removed."
 }
 
@@ -49,7 +60,12 @@ case "${1:-}" in
 esac
 
 [ "$(uname -s)" = "Linux" ] || die "braids is available for Linux only for now."
-[ "$(uname -m)" = "x86_64" ] || die "braids is available for x86_64 only for now (this is $(uname -m))."
+ARCH="$(uname -m)"
+case "${ARCH}" in
+  x86_64 | aarch64) ;;
+  arm64) ARCH="aarch64" ;;
+  *) die "braids is available for x86_64 and aarch64 (ARM64) only (this is ${ARCH})." ;;
+esac
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT INT TERM
@@ -59,9 +75,9 @@ if [ -n "${BRAIDS_TARBALL:-}" ]; then
 else
   command -v curl >/dev/null 2>&1 || die "curl is needed."
   if [ -n "${BRAIDS_VERSION:-}" ]; then
-    URL="https://github.com/${REPO}/releases/download/${BRAIDS_VERSION}/braids-linux-x86_64.tar.gz"
+    URL="https://github.com/${REPO}/releases/download/${BRAIDS_VERSION}/braids-linux-${ARCH}.tar.gz"
   else
-    URL="https://github.com/${REPO}/releases/latest/download/braids-linux-x86_64.tar.gz"
+    URL="https://github.com/${REPO}/releases/latest/download/braids-linux-${ARCH}.tar.gz"
   fi
   say "Downloading ${URL}"
   curl -fL --progress-bar -o "${TMP}/braids.tar.gz" "${URL}" || die "download failed."
@@ -76,7 +92,7 @@ tar -C "${TMP}" -xzf "${TMP}/braids.tar.gz" || die "could not unpack the downloa
 
 # replace the previous version; a running braidsd is restarted by the app
 # when it notices the newer binary
-mkdir -p "${DATA}" "${BIN}" "${APPS}" "${ICONS}/128x128/apps" "${ICONS}/256x256/apps"
+mkdir -p "${DATA}" "${BIN}" "${APPS}" "${ICONS}/128x128/apps" "${ICONS}/256x256/apps" "${ICONS}/scalable/apps"
 rm -rf "${DEST}.new"
 mv "${TMP}/braids" "${DEST}.new"
 rm -rf "${DEST}"
@@ -86,7 +102,8 @@ ln -sf "${DEST}/bin/braids" "${BIN}/braids"
 sed "s|^Exec=.*|Exec=${DEST}/bin/braids|" "${DEST}/share/applications/braids.desktop" > "${APPS}/braids.desktop"
 cp "${DEST}/share/icons/hicolor/128x128/apps/braids.png" "${ICONS}/128x128/apps/braids.png"
 cp "${DEST}/share/icons/hicolor/256x256/apps/braids.png" "${ICONS}/256x256/apps/braids.png"
-command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "${APPS}" >/dev/null 2>&1 || true
+[ -f "${DEST}/share/icons/hicolor/scalable/apps/braids.svg" ] && cp "${DEST}/share/icons/hicolor/scalable/apps/braids.svg" "${ICONS}/scalable/apps/braids.svg"
+refresh_desktop
 
 say "braids $(cat "${DEST}/share/braids-version" 2>/dev/null || true) installed to ${DEST}"
 

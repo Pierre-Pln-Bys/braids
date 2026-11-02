@@ -281,10 +281,14 @@ public:
   // braids: messages with an attachment (p_Links false) or a link in the
   // text (true), newest first, older than p_BeforeTime; all chats when
   // p_ChatId is empty. Pairs of chat id and message.
+  // braids: messages of a chat (or all chats, empty chatId) by kind, newest
+  // first: "files" (with a file), "links", "pinned", "search" (text contains
+  // p_Text, case-insensitive for ASCII)
   static std::vector<std::pair<std::string, ChatMessage>> FetchMediaSync(const std::string& p_ProfileId,
                                                                          const std::string& p_ChatId,
-                                                                         bool p_Links, int64_t p_BeforeTime,
-                                                                         int p_Limit);
+                                                                         const std::string& p_Kind,
+                                                                         const std::string& p_Text,
+                                                                         int64_t p_BeforeTime, int p_Limit);
   // braids: number of unread received messages per chat (after the last
   // own or read one)
   static std::map<std::string, int> GetUnreadCountsSync(const std::string& p_ProfileId);

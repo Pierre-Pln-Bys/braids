@@ -23,6 +23,7 @@ package main
 // extern void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
 // extern void MxNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 // extern void MxJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
+// extern void MxCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);
 // extern void MxDeleteChatNotify(int p_ConnId, char* p_ChatId);
 // extern void MxDeleteMessageNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsOutgoing);
 // extern void MxUpdateMuteNotify(int p_ConnId, char* p_ChatId, int p_IsMuted);
@@ -70,6 +71,31 @@ func CMxNormalizeUserId(userId *C.char) *C.char {
 //export CMxDiscoverHomeserver
 func CMxDiscoverHomeserver(userId *C.char) *C.char {
 	return C.CString(MxDiscoverHomeserver(C.GoString(userId)))
+}
+
+//export CMxLoginFlows
+func CMxLoginFlows(homeserver *C.char) *C.char {
+	return C.CString(MxLoginFlows(C.GoString(homeserver)))
+}
+
+//export CMxSsoStart
+func CMxSsoStart(connId int, homeserver *C.char) *C.char {
+	return C.CString(MxSsoStart(connId, C.GoString(homeserver)))
+}
+
+//export CMxSsoWait
+func CMxSsoWait(connId int, timeoutMs int) *C.char {
+	return C.CString(MxSsoWait(connId, timeoutMs))
+}
+
+//export CMxSsoStop
+func CMxSsoStop(connId int) {
+	MxSsoStop(connId)
+}
+
+//export CMxSetupLoginToken
+func CMxSetupLoginToken(connId int, homeserver *C.char, token *C.char) *C.char {
+	return C.CString(MxSetupLoginToken(connId, C.GoString(homeserver), C.GoString(token)))
 }
 
 //export CMxSetupLogin
@@ -192,6 +218,11 @@ func CMxJoinChat(connId int, link *C.char) int {
 	return MxJoinChat(connId, C.GoString(link))
 }
 
+//export CMxCreateGroup
+func CMxCreateGroup(connId int, name *C.char, userIds *C.char) int {
+	return MxCreateGroup(connId, C.GoString(name), C.GoString(userIds))
+}
+
 //export CMxGetDescription
 func CMxGetDescription(connId int, id *C.char) int {
 	return MxGetDescription(connId, C.GoString(id))
@@ -255,6 +286,10 @@ func CMxNewAvatarNotify(connId int, avatarId string, filePath string) {
 
 func CMxJoinChatNotify(connId int, link string, success bool, chatId string, errText string) {
 	C.MxJoinChatNotify(C.int(connId), C.CString(link), C.int(BoolToInt(success)), C.CString(chatId), C.CString(errText))
+}
+
+func CMxCreateGroupNotify(connId int, name string, success bool, chatId string, errText string) {
+	C.MxCreateGroupNotify(C.int(connId), C.CString(name), C.int(BoolToInt(success)), C.CString(chatId), C.CString(errText))
 }
 
 func CMxNewDescriptionNotify(connId int, id string, description string) {
