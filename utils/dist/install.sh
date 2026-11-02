@@ -19,7 +19,7 @@
 #   --purge       remove braids and ~/.config/braids
 #
 # Environment:
-#   BRAIDS_TARBALL   install from this local braids-linux-x86_64.tar.gz instead
+#   BRAIDS_TARBALL   install from this local braids-linux-<arch>.tar.gz instead
 #                    of downloading the latest release
 #   BRAIDS_VERSION   a release tag (e.g. v0.2.0) instead of the latest
 
@@ -49,7 +49,12 @@ case "${1:-}" in
 esac
 
 [ "$(uname -s)" = "Linux" ] || die "braids is available for Linux only for now."
-[ "$(uname -m)" = "x86_64" ] || die "braids is available for x86_64 only for now (this is $(uname -m))."
+ARCH="$(uname -m)"
+case "${ARCH}" in
+  x86_64 | aarch64) ;;
+  arm64) ARCH="aarch64" ;;
+  *) die "braids is available for x86_64 and aarch64 (ARM64) only (this is ${ARCH})." ;;
+esac
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT INT TERM
@@ -59,9 +64,9 @@ if [ -n "${BRAIDS_TARBALL:-}" ]; then
 else
   command -v curl >/dev/null 2>&1 || die "curl is needed."
   if [ -n "${BRAIDS_VERSION:-}" ]; then
-    URL="https://github.com/${REPO}/releases/download/${BRAIDS_VERSION}/braids-linux-x86_64.tar.gz"
+    URL="https://github.com/${REPO}/releases/download/${BRAIDS_VERSION}/braids-linux-${ARCH}.tar.gz"
   else
-    URL="https://github.com/${REPO}/releases/latest/download/braids-linux-x86_64.tar.gz"
+    URL="https://github.com/${REPO}/releases/latest/download/braids-linux-${ARCH}.tar.gz"
   fi
   say "Downloading ${URL}"
   curl -fL --progress-bar -o "${TMP}/braids.tar.gz" "${URL}" || die "download failed."

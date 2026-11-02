@@ -184,7 +184,7 @@
       </div>
       <div class="install">
         <div class="cmd"><code id="install-cmd">curl -fsSL https://pebll.github.io/braids/install.sh | sh</code><button class="copy" data-copy="install-cmd">Copy</button></div>
-        <p class="install-note">Linux (x86_64) · no root needed · <a href="#download">other ways to install</a></p>
+        <p class="install-note">Linux (x86_64 and ARM64) · no root needed · <a href="#download">other ways to install</a></p>
       </div>
       <div class="shot">
         <img class="light" src="img/inbox-light.png" alt="braids: one inbox with chats from Telegram, WhatsApp, Signal and Matrix, and a Telegram group open" width="1280" height="800">
@@ -205,10 +205,14 @@
         <li>Replies and reactions</li>
         <li>@mentions</li>
         <li>Edit and delete</li>
+        <li>Stickers and GIFs</li>
+        <li>Link previews</li>
+        <li>New groups</li>
         <li>Join groups by link</li>
         <li>Group info and members</li>
         <li>Read receipts and typing</li>
-        <li>Search</li>
+        <li>Search across all chats</li>
+        <li>Pinned messages</li>
         <li>Notifications</li>
         <li>Shared media</li>
       </ul>
@@ -287,7 +291,7 @@
     <div class="wrap">
       <div class="eyebrow">Download</div>
       <h2>Get braids for Linux</h2>
-      <p class="lead">Free and open source under the AGPL v3. x86_64, any recent distribution.</p>
+      <p class="lead">Free and open source under the AGPL v3. For x86_64 and ARM64 (aarch64), any recent distribution.</p>
       <div class="dl">
         <div class="card main">
           <span class="tag">Recommended</span>
@@ -299,8 +303,22 @@
         <div class="card">
           <h3>Debian and Ubuntu</h3>
           <p>A .deb package that installs to <code>/opt/braids</code> and pulls in the system libraries.</p>
-          <pre>sudo apt install ./braids_*_amd64.deb</pre>
+          <pre>sudo apt install ./braids_*_amd64.deb   # or _arm64</pre>
           <div class="actions"><a class="btn ghost" href="https://github.com/pebll/braids/releases/latest">Download .deb</a></div>
+        </div>
+        <div class="card">
+          <h3>Flatpak</h3>
+          <p>Runs in a sandbox on any distribution with Flatpak. Updates come with each release, installed the same way.</p>
+          <pre>flatpak install --user ./braids-x86_64.flatpak
+flatpak run org.braids.app</pre>
+          <div class="actions"><a class="btn ghost" href="https://github.com/pebll/braids/releases/latest/download/braids-x86_64.flatpak">Download .flatpak</a></div>
+        </div>
+        <div class="card">
+          <h3>AppImage</h3>
+          <p>One file, no installation: make it executable and start it. Needs WebKitGTK from your distribution.</p>
+          <pre>chmod +x braids-x86_64.AppImage
+./braids-x86_64.AppImage</pre>
+          <div class="actions"><a class="btn ghost" href="https://github.com/pebll/braids/releases/latest/download/braids-x86_64.AppImage">Download AppImage</a></div>
         </div>
         <div class="card">
           <h3>Archive</h3>

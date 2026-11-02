@@ -1,0 +1,33 @@
+#!/bin/sh
+
+# AppRun
+#
+# Copyright (c) 2026 braids contributors
+#
+# braids is distributed under the GNU AGPL v3 license, see LICENSE for details.
+#
+# Starts braids from the AppImage. braidsd keeps running after the app quits,
+# but the AppImage is unmounted then, so braidsd and its libraries are run
+# from a copy in the cache directory (one per version).
+
+set -eu
+
+HERE="$(dirname "$(readlink -f "$0")")"
+VERSION="$(cat "${HERE}/share/braids-version" 2>/dev/null || echo unknown)"
+CACHE="${XDG_CACHE_HOME:-${HOME}/.cache}/braids/appimage-${VERSION}"
+
+if [ ! -x "${CACHE}/bin/braidsd" ]; then
+  rm -rf "${CACHE}.new"
+  mkdir -p "${CACHE}.new/bin"
+  cp "${HERE}/bin/braidsd" "${CACHE}.new/bin/"
+  cp -a "${HERE}/lib" "${CACHE}.new/"
+  rm -rf "${CACHE}"
+  mv "${CACHE}.new" "${CACHE}"
+  # older versions' copies
+  for old in "${CACHE%/*}"/appimage-*; do
+    [ "${old}" = "${CACHE}" ] || rm -rf "${old}"
+  done
+fi
+
+export BRAIDSD="${CACHE}/bin/braidsd"
+exec "${HERE}/bin/braids" "$@"

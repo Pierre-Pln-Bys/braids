@@ -8,14 +8,19 @@
 #
 # Builds the Linux release packages of braids into dist/:
 #
-#   braids-linux-x86_64.tar.gz (+ .sha256)  relocatable tree, used by install.sh
-#   braids_<version>_amd64.deb (+ .sha256)  installs to /opt/braids
+#   braids-linux-<arch>.tar.gz (+ .sha256)  relocatable tree, used by install.sh
+#                                           and the Flatpak (utils/dist/flatpak)
+#   braids_<version>_<debarch>.deb (+ .sha256)  installs to /opt/braids
+#   braids-<arch>.AppImage (+ .sha256)      with --appimage (needs appimagetool
+#                                           in PATH or $APPIMAGETOOL)
+#
+# <arch>: x86_64 or aarch64 (the machine's; <debarch> amd64 or arm64).
 #
 # The tree (bin/braids app, bin/braidsd, lib/*.so protocols, share/...) works
 # from any directory: braidsd finds its libraries through $ORIGIN, the app
 # finds braidsd next to itself.
 #
-# Usage: utils/dist/package-linux [--no-telegram] [--no-whatsapp] [--no-signal] [--no-matrix]
+# Usage: utils/dist/package-linux [--appimage] [--no-telegram] [--no-whatsapp] [--no-signal] [--no-matrix]
 #
 # Needs the build dependencies (./make.sh deps), Node 22, Rust and the Tauri
 # Linux dependencies (app/README.md). Telegram: set TG_API_ID / TG_API_HASH
@@ -27,22 +32,25 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 
 CMAKEARGS=()
+APPIMAGE=0
 for arg in "$@"; do
   case "${arg}" in
+    --appimage) APPIMAGE=1 ;;
     --no-telegram) CMAKEARGS+=("-DHAS_TELEGRAM=OFF") ;;
     --no-whatsapp) CMAKEARGS+=("-DHAS_WHATSAPP=OFF") ;;
     --no-signal) CMAKEARGS+=("-DHAS_SIGNAL=OFF") ;;
     --no-matrix) CMAKEARGS+=("-DHAS_MATRIX=OFF") ;;
-    *) echo "usage: $0 [--no-telegram] [--no-whatsapp] [--no-signal] [--no-matrix]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--appimage] [--no-telegram] [--no-whatsapp] [--no-signal] [--no-matrix]" >&2; exit 2 ;;
   esac
 done
 
 VERSION="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' app/src-tauri/tauri.conf.json | head -1)"
 ARCH="$(uname -m)"
-if [[ "${ARCH}" != "x86_64" ]]; then
-  echo "only x86_64 is packaged for now (this is ${ARCH})" >&2
-  exit 1
-fi
+case "${ARCH}" in
+  x86_64) DEBARCH="amd64" ;;
+  aarch64) DEBARCH="arm64" ;;
+  *) echo "only x86_64 and aarch64 are packaged (this is ${ARCH})" >&2; exit 1 ;;
+esac
 
 BUILD="${ROOT}/build-release"
 STAGE="${ROOT}/dist/stage"
@@ -97,7 +105,7 @@ cp "${TREE}/share/icons/hicolor/256x256/apps/braids.png" "${DEBROOT}/usr/share/i
 cat > "${DEBROOT}/DEBIAN/control" <<EOF
 Package: braids
 Version: ${VERSION}
-Architecture: amd64
+Architecture: ${DEBARCH}
 Maintainer: braids contributors <noreply@braids.invalid>
 Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1, libssl3 | libssl1.1, libsqlite3-0, libmagic1, zlib1g, libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
 Recommends: gstreamer1.0-libav
@@ -109,9 +117,26 @@ Description: Telegram, WhatsApp, Signal and Matrix in one desktop app
  and Matrix with a unified inbox. WhatsApp support is unofficial; WhatsApp
  may restrict accounts using it.
 EOF
-DEB="${ROOT}/dist/braids_${VERSION}_amd64.deb"
+DEB="${ROOT}/dist/braids_${VERSION}_${DEBARCH}.deb"
 dpkg-deb --root-owner-group --build "${DEBROOT}" "${DEB}"
 (cd "${ROOT}/dist" && sha256sum "$(basename "${DEB}")" > "$(basename "${DEB}").sha256")
+
+if [[ "${APPIMAGE}" == "1" ]]; then
+  echo "== AppImage"
+  TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
+  [[ -n "${TOOL}" ]] || { echo "appimagetool not found (set APPIMAGETOOL)" >&2; exit 1; }
+  APPDIR="${STAGE}/braids.AppDir"
+  cp -a "${TREE}" "${APPDIR}"
+  rm "${APPDIR}/share/braids-install.sh"
+  install -m 0755 utils/dist/AppRun "${APPDIR}/AppRun"
+  sed "s|@EXEC@|braids|" utils/dist/braids.desktop.in > "${APPDIR}/braids.desktop"
+  cp "${TREE}/share/icons/hicolor/256x256/apps/braids.png" "${APPDIR}/braids.png"
+  ln -s braids.png "${APPDIR}/.DirIcon"
+  APPIMG="${ROOT}/dist/braids-${ARCH}.AppImage"
+  # extract-and-run: no FUSE needed on build machines
+  ARCH="${ARCH}" APPIMAGE_EXTRACT_AND_RUN=1 "${TOOL}" --no-appstream "${APPDIR}" "${APPIMG}"
+  (cd "${ROOT}/dist" && sha256sum "$(basename "${APPIMG}")" > "$(basename "${APPIMG}").sha256")
+fi
 
 rm -rf "${STAGE}"
 ls -l "${ROOT}/dist"

@@ -3,9 +3,8 @@
 braids: open source desktop messenger (Telegram, WhatsApp, Signal, Matrix),
 Linux only (no macOS builds or CI), Tauri GUI on top of a C++ core daemon. Forked from nchat
 (terminal client). Read `doc/REQUIREMENTS.md` and `doc/ARCHITECTURE.md` first;
-they hold the agreed decisions and the milestone plan (M0 done, M1 core done
-pending real-account checks of Telegram/WhatsApp/Signal, M2 API done, M3 GUI v1
-in `app/` implemented, pending daily use by the maintainer; next: M4). The daemon
+they hold the agreed decisions and the milestone plan (M0–M3 done, Telegram/WhatsApp/Signal
+verified with real accounts; M4 remaining: vim mode). The daemon
 API is in `doc/API.md`; the GUI design brief in `doc/DESIGN_BRIEF.md`, and
 the finished GUI design (tokens, icons, mockups, screenshots) in
 `doc/design/README.md` — follow it when building the Tauri app.
@@ -69,10 +68,13 @@ be blocked; use `--no-signal` there, CI builds it. Docker may need `dockerd`
 started by hand. `./make.sh deps` asks for apt confirmation; install
 `libmagic-dev` etc. non-interactively if it aborts.
 
-Packaging (Linux x86_64 only): `utils/dist/package-linux` builds a relocatable
-tree (rpath `$ORIGIN/../lib`, `-DBRAIDS_RELOCATABLE=ON`, no Dummy) into a
-tarball and a .deb; `utils/dist/install.sh` installs the tarball per user;
-tag `v*` runs `.github/workflows/release.yml`. Website: `site/` (GitHub Pages,
+Packaging (Linux x86_64 and aarch64): `utils/dist/package-linux` builds a
+relocatable tree (rpath `$ORIGIN/../lib`, `-DBRAIDS_RELOCATABLE=ON`, no Dummy)
+into a tarball, a .deb and (`--appimage`) an AppImage (`utils/dist/AppRun`
+runs braidsd from a cache copy, it outlives the mount);
+`utils/dist/flatpak/` wraps the tarball into a Flatpak (GNOME runtime);
+`utils/dist/install.sh` installs the tarball per user; tag `v*` runs
+`.github/workflows/release.yml` (both arches, all formats). Website: `site/` (GitHub Pages,
 `.github/workflows/pages.yml`).
 
 ## Conventions
@@ -104,9 +106,6 @@ Scheduled-later features are in `doc/BACKLOG.md`.
   `.env` in the repository root, see `.env.example`; the release
   workflow takes them from repository secrets). Builds without them fall back
   to nchat's credentials (development only).
-- Telegram, WhatsApp and Signal login flows through braidsd are implemented
-  but not yet verified with real accounts (needs the maintainer; use
-  `utils/braids-console`).
 - App: vim mode is M4. Muting and "mark unread" are braids' own settings
   (`chats.mute`, `chats.markUnread`, kept in `<profile>/braids-chats.json`),
   not synced to the messenger. Unread counts are computed by braidsd
@@ -115,3 +114,9 @@ Scheduled-later features are in `doc/BACKLOG.md`.
   `WINDOW`/`REVEAL`). Group events reach braidsd as bracketed texts (`[Joined]`);
   `SystemText()` in `chatmodel.cpp` turns them into the message's `system`
   phrase.
+- Stickers/GIFs: `file.kind` from `FileTypeAndKind()` (chatmodel.cpp);
+  protocols mark them in the file type (`; braids=sticker`) or file name
+  (`.sticker.`, `.gif.`). Link previews are fetched by the Rust shell
+  (`src-tauri/src/linkpreview.rs`, no local/LAN addresses). Adding a request
+  or notify type to `protocol.h` shifts the enum: rebuild all protocol
+  libraries (`make`, not only `make braidsd`).
