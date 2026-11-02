@@ -685,6 +685,23 @@ try {
   check(true, 'a search result opens the chat at the message');
   await page.locator('input[aria-label="Search chats"]').fill('');
 
+  // favorites pinned at the top instead of their own folder
+  await page.keyboard.press('Control+,');
+  await page.getByRole('group', { name: 'Favorites' }).getByRole('button', { name: 'On top' }).click();
+  await page.keyboard.press('Escape');
+  check(await page.locator('.sidebar .item', { hasText: 'Favorites' }).count() === 0, 'no Favorites folder with favorites on top');
+  const firstName = await page.locator('.chatlist .row .name').first().textContent();
+  check(await page.evaluate((n) => {
+    const s = window.__braids.store;
+    const c = s.chatList[0];
+    return s.chatName(c) === n && s.category(c) === 'favorite';
+  }, firstName), 'a favorite is first in the chat list');
+  await page.keyboard.press('Control+,');
+  await page.getByRole('group', { name: 'Favorites' }).getByRole('button', { name: 'Folder' }).click();
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar .item', { hasText: 'Favorites' }).waitFor();
+  check(true, 'Favorites folder back');
+
   // rename an account in the sidebar (double-click)
   await page.locator('.sidebar .item .label').filter({ hasText: /Dummy/ }).first().dblclick();
   await page.fill('input[aria-label="Account name"]', 'OCS');

@@ -39,6 +39,16 @@
     settings.save();
   }
 
+  const folders = $derived([
+    { f: { kind: 'all' } as Filter, label: 'All chats', icon: Inbox },
+    ...(settings.favorites === 'top' ? [] : [{ f: { kind: 'favorites' } as Filter, label: 'Favorites', icon: Star }]),
+  ]);
+
+  // without the folder, a selected Favorites goes back to All chats
+  $effect(() => {
+    if (settings.favorites === 'top' && store.filter.kind === 'favorites') store.filter = { kind: 'all' };
+  });
+
   // renaming an account in place (right-click → Rename…); the name is
   // braids' own, as in Settings → Accounts
   let renaming = $state('');
@@ -95,7 +105,7 @@
   {/if}
 
   <div class="items">
-    {#each [{ f: { kind: 'all' } as Filter, label: 'All chats', icon: Inbox }, { f: { kind: 'favorites' } as Filter, label: 'Favorites', icon: Star }] as item}
+    {#each folders as item}
       {@const n = store.unreadCount(item.f)}
       <button class="item" class:active={isActive(item.f)} onclick={() => select(item.f)} title={collapsed ? item.label : undefined}>
         <span class="ico"><item.icon size={18} strokeWidth={1.75} /></span>

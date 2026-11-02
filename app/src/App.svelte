@@ -150,6 +150,7 @@
         store.filter = { kind: 'all' };
         return true;
       case 'goFavorites':
+        if (settings.favorites === 'top') return false;
         store.filter = { kind: 'favorites' };
         return true;
       case 'goMatrix':

@@ -177,6 +177,14 @@
           </div>
         </div>
         <div class="row">
+          <div class="row-text"><b>Favorites</b><span>Their own folder in the sidebar, pinned at the top of every chat list, or both.</span></div>
+          <div class="segmented" role="group" aria-label="Favorites">
+            {#each [{ id: 'folder', label: 'Folder' }, { id: 'top', label: 'On top' }, { id: 'both', label: 'Both' }] as const as o}
+              <button aria-pressed={settings.favorites === o.id} onclick={() => set('favorites', o.id)}>{o.label}</button>
+            {/each}
+          </div>
+        </div>
+        <div class="row">
           <div class="row-text"><b>Enter sends the message</b><span>Off: Ctrl+Enter sends, Enter adds a line.</span></div>
           <button class="toggle" role="switch" aria-checked={settings.enterSends} aria-label="Enter sends" onclick={() => set('enterSends', !settings.enterSends)}></button>
         </div>

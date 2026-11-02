@@ -16,6 +16,7 @@
   import * as api from '../lib/api';
   import { listTime } from '../lib/format';
   import { bindings, comboKeys } from '../lib/keybinds.svelte';
+  import { settings } from '../lib/settings.svelte';
   import { chatKey, store } from '../lib/store.svelte';
   import type { Chat, Message } from '../lib/types';
   import { ui } from '../lib/ui.svelte';
@@ -27,6 +28,7 @@
   let cursor = $state(-1); // keyboard cursor, distinct from selection
 
   const chats = $derived(store.chatList);
+  const favoritesOnTop = $derived(settings.favorites !== 'folder' && store.filter.kind !== 'favorites' && !store.search.trim());
 
   const title = $derived.by(() => {
     const f = store.filter;
@@ -188,12 +190,14 @@
       {@const key = chatKey(c.accountId, c.id)}
       {@const p = preview(c)}
       {@const selected = key === store.current}
+      {@const favEnd = favoritesOnTop && store.category(c) === 'favorite' && !!chats[i + 1] && store.category(chats[i + 1]) !== 'favorite'}
       <div
         class="row"
         class:selected
         class:cursor={i === cursor}
         class:unread={c.isUnread && !store.eventsOnly(c)}
         class:muted={c.isMuted}
+        class:fav-end={favEnd}
         role="option"
         aria-selected={selected}
         tabindex="-1"
@@ -275,6 +279,7 @@
 </section>
 
 <style>
+  .row.fav-end { box-shadow: 0 1px 0 var(--border); margin-bottom: 4px; }
   .found { padding: 4px 0 12px; }
   .found h3 { margin: 10px 14px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
   .hit { width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border: 0; background: none; text-align: left; color: var(--text); }

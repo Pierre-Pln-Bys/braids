@@ -106,17 +106,19 @@ class Store {
     return settings.categories[chatKey(c.accountId, c.id)] ?? (c.isArchived ? 'archived' : 'default');
   }
 
-  // Newest activity first; favorites are marked in the list, not sorted up.
+  // Newest activity first; favorites first too when the setting says so.
   get chatList(): Chat[] {
     const f = this.filter;
     const q = this.search.trim().toLowerCase();
+    const favoritesFirst = settings.favorites !== 'folder' && f.kind !== 'favorites';
+    const fav = (c: Chat) => (favoritesFirst && this.category(c) === 'favorite' ? 1 : 0);
     return Object.values(this.chats)
       .filter((c) => this.accounts[c.accountId])
       .filter((c) => (f.kind === 'archived' ? this.category(c) === 'archived' : this.category(c) !== 'archived'))
       .filter((c) => f.kind !== 'favorites' || this.category(c) === 'favorite')
       .filter((c) => f.kind !== 'account' || c.accountId === f.accountId)
       .filter((c) => !q || this.chatName(c).toLowerCase().includes(q))
-      .sort((a, b) => b.lastActivity - a.lastActivity);
+      .sort((a, b) => fav(b) - fav(a) || b.lastActivity - a.lastActivity);
   }
 
   // only group events (joined, left, ...) are new: shown grey, not counted
