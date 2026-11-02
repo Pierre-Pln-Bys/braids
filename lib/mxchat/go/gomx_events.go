@@ -360,6 +360,10 @@ func (conn *MxConn) fileInfoFor(evt *event.Event, content *event.MessageEventCon
 	if base == "" {
 		base = "file"
 	}
+	// braids: "x.sticker.png" marks a sticker, shown without a bubble
+	if evt.Type == event.EventSticker {
+		base += ".sticker"
+	}
 
 	targetPath := fmt.Sprintf("%s/%s/%s", tmpPath(conn.path), evtPart, base)
 	if ext != "" {

@@ -80,6 +80,33 @@ export function editLastOwnMessage(): boolean {
 
 // Opens a link from a message or description: a group invite link of a
 // messenger with a connected account opens "Join a group", others the browser.
+// copies text to the clipboard; `done` is shown when it worked
+export function copyText(text: string, done = '') {
+  api
+    .copyText(text)
+    .then(() => done && store.toast(done))
+    .catch((e) => store.toastError(e));
+}
+
+// Ctrl+C outside text fields: the selected text, or without a selection the
+// text of the message under the mouse
+export function copyShortcut(e: KeyboardEvent): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'c') return false;
+  const t = e.target as HTMLElement | null;
+  if (t?.closest('input, textarea, [contenteditable=""], [contenteditable="true"]')) return false;
+  const selected = window.getSelection()?.toString() ?? '';
+  if (selected) {
+    copyText(selected);
+    return true;
+  }
+  const m = ui.hoverMessage;
+  if (m?.text && !m.isDeleted) {
+    copyText(m.text, 'Message copied');
+    return true;
+  }
+  return false;
+}
+
 export function openLink(url: string) {
   const protocol = inviteLinkProtocol(url);
   if (protocol && store.accountList.some((a) => a.protocol === protocol && a.capabilities.joinChat)) {

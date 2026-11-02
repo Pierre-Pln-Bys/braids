@@ -1275,9 +1275,18 @@ func (handler *SgEventHandler) handleDataMessage(chatId string, senderId string,
 	if len(attachments) > 0 {
 		attachment := attachments[0]
 		ext := ExtensionByType(attachment.GetContentType(), ".bin")
+		// braids: stickers and GIFs are marked in the file name ("x.sticker.webp",
+		// "x.gif.mp4") so the app shows them as such
+		if msg.GetSticker() != nil {
+			ext = ".sticker" + ext
+		} else if attachment.GetFlags()&uint32(signalpb.AttachmentPointer_GIF) != 0 {
+			ext = ".gif" + ext
+		}
 		fileName := attachment.GetFileName()
-		if fileName == "" {
+		if fileName == "" || msg.GetSticker() != nil {
 			fileName = fmt.Sprintf("%d%s", timeSent, ext)
+		} else if attachment.GetFlags()&uint32(signalpb.AttachmentPointer_GIF) != 0 {
+			fileName = strings.TrimSuffix(fileName, filepath.Ext(fileName)) + ext
 		}
 		var tmpPath string = GetPath(connId) + "/tmp"
 		filePath = fmt.Sprintf("%s/%s", tmpPath, fileName)

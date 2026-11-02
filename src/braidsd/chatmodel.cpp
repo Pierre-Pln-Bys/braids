@@ -42,6 +42,7 @@ static std::string GuessMimeType(const FileInfo& p_FileInfo)
     { "mp4", "video/mp4" }, { "f4v", "video/mp4" }, { "m4v", "video/mp4" }, { "mov", "video/quicktime" }, { "webm", "video/webm" }, { "mkv", "video/x-matroska" },
     { "3gp", "video/3gpp" }, { "ogg", "audio/ogg" }, { "oga", "audio/ogg" }, { "opus", "audio/opus" },
     { "mp3", "audio/mpeg" }, { "m4a", "audio/mp4" }, { "wav", "audio/wav" }, { "pdf", "application/pdf" },
+    { "tgs", "application/x-tgsticker" },
   };
 
   const std::string& path = p_FileInfo.filePath;
@@ -59,6 +60,44 @@ static std::string GuessMimeType(const FileInfo& p_FileInfo)
   }
 
   return "";
+}
+
+// Mime type and kind ("sticker", "gif" or "") of a file. Protocols mark
+// stickers and GIFs (animations without sound) with a "braids=" parameter on
+// the type (Telegram) or in the file name ("x.sticker.webp", "x.gif.mp4");
+// WebP images and Telegram's .tgs files are stickers in all messengers.
+static void FileTypeAndKind(const FileInfo& p_FileInfo, std::string& p_MimeType, std::string& p_Kind)
+{
+  p_Kind.clear();
+  std::string type = p_FileInfo.fileType;
+  const size_t semi = type.find(';');
+  if (semi != std::string::npos)
+  {
+    const std::string params = type.substr(semi + 1);
+    if (params.find("braids=sticker") != std::string::npos) p_Kind = "sticker";
+    else if (params.find("braids=gif") != std::string::npos) p_Kind = "gif";
+    type = type.substr(0, semi);
+    while (!type.empty() && (type.back() == ' ')) type.pop_back();
+  }
+
+  p_MimeType = type.empty() ? GuessMimeType(p_FileInfo) : type;
+  if (!p_Kind.empty()) return;
+
+  const std::string name = StrUtil::ToLower(FileUtil::BaseName(p_FileInfo.filePath));
+  if ((name.size() > 4) && (name.compare(name.size() - 4, 4, ".tgs") == 0))
+  {
+    p_MimeType = "application/x-tgsticker"; // gzip to libmagic
+  }
+
+  if ((p_MimeType == "application/x-tgsticker") || (p_MimeType == "image/webp") ||
+      (name.find(".sticker.") != std::string::npos))
+  {
+    p_Kind = "sticker";
+  }
+  else if ((p_MimeType == "image/gif") || (name.find(".gif.") != std::string::npos))
+  {
+    p_Kind = "gif";
+  }
 }
 
 static const char* FileStatusToString(FileStatus p_FileStatus)
@@ -300,11 +339,18 @@ static bool HasLink(const std::string& p_Text)
 }
 
 json ChatModel::GetMedia(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Kind,
-                         int64_t p_BeforeTime, int p_Limit)
+                         int64_t p_BeforeTime, int p_Limit, const std::string& p_Text)
 {
-  if ((p_Kind != "media") && (p_Kind != "files") && (p_Kind != "links"))
+  if ((p_Kind != "media") && (p_Kind != "files") && (p_Kind != "links") && (p_Kind != "pinned") &&
+      (p_Kind != "search"))
   {
-    throw ApiException(ApiErrorInvalidParams, "kind must be media, files or links");
+    throw ApiException(ApiErrorInvalidParams, "kind must be media, files, links or pinned");
+  }
+
+  const std::string needle = StrUtil::ToLower(p_Text);
+  if ((p_Kind == "search") && needle.empty())
+  {
+    throw ApiException(ApiErrorInvalidParams, "missing param 'text'");
   }
 
   if (!p_ChatId.empty() && p_AccountId.empty())
@@ -313,10 +359,11 @@ json ChatModel::GetMedia(const std::string& p_AccountId, const std::string& p_Ch
   }
 
   const bool links = (p_Kind == "links");
+  const bool byText = links || (p_Kind == "pinned") || (p_Kind == "search"); // no file filter after the query
   const int limit = std::max(1, std::min(p_Limit, 200));
   const int64_t before = (p_BeforeTime > 0) ? p_BeforeTime : std::numeric_limits<int64_t>::max();
   // candidates per account from the cache; media and files share the query
-  const int fetch = links ? limit : (limit * 3);
+  const int fetch = byText ? limit : (limit * 3);
 
   std::vector<std::string> accountIds;
   if (!p_AccountId.empty())
@@ -347,7 +394,8 @@ json ChatModel::GetMedia(const std::string& p_AccountId, const std::string& p_Ch
   {
     AccountState& account = m_Accounts[accountId];
     std::vector<std::pair<std::string, ChatMessage>> cached =
-      MessageCache::FetchMediaSync(accountId, p_ChatId, links, before, fetch);
+      MessageCache::FetchMediaSync(accountId, p_ChatId, (p_Kind == "media") ? "files" : p_Kind, p_Text, before,
+                                   fetch);
     if ((int)cached.size() == fetch)
     {
       cutoff = std::max(cutoff, cached.back().second.timeSent);
@@ -403,12 +451,24 @@ json ChatModel::GetMedia(const std::string& p_AccountId, const std::string& p_Ch
     {
       if (!HasLink(chatMessage.text)) continue;
     }
+    else if (p_Kind == "pinned")
+    {
+      if (!chatMessage.isPinned) continue;
+    }
+    else if (p_Kind == "search")
+    {
+      if (StrUtil::ToLower(chatMessage.text).find(needle) == std::string::npos) continue;
+      if (!SystemText(chatMessage).empty()) continue; // [Joined] etc.
+    }
     else
     {
       if (chatMessage.fileInfo.empty()) continue;
 
       FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
-      const std::string mimeType = fileInfo.fileType.empty() ? GuessMimeType(fileInfo) : fileInfo.fileType;
+      std::string mimeType;
+      std::string kind;
+      FileTypeAndKind(fileInfo, mimeType, kind);
+      if (kind == "sticker") continue; // not shared media
       const bool isMedia = StrUtil::StartsWith(mimeType, "image/") || StrUtil::StartsWith(mimeType, "video/");
       if (isMedia != (p_Kind == "media")) continue;
     }
@@ -780,6 +840,24 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
         Emit("chat.joined", json{ { "accountId", accountId }, { "link", joinChatNotify->link },
                { "success", joinChatNotify->success }, { "chatId", joinChatNotify->chatId },
                { "error", joinChatNotify->error } });
+      }
+      break;
+
+    case CreateGroupNotifyType:
+      {
+        std::shared_ptr<CreateGroupNotify> createGroupNotify =
+          std::static_pointer_cast<CreateGroupNotify>(p_ServiceMessage);
+        if (createGroupNotify->success && !account.chatInfos.count(createGroupNotify->chatId))
+        {
+          // make sure the chat shows up even if the protocol does not report it by itself
+          std::shared_ptr<GetChatsRequest> getChatsRequest = std::make_shared<GetChatsRequest>();
+          getChatsRequest->chatIds.insert(createGroupNotify->chatId);
+          SendProtocolRequest(accountId, getChatsRequest);
+        }
+
+        Emit("chat.groupCreated", json{ { "accountId", accountId }, { "name", createGroupNotify->name },
+               { "success", createGroupNotify->success }, { "chatId", createGroupNotify->chatId },
+               { "error", createGroupNotify->error } });
       }
       break;
 
@@ -1938,6 +2016,26 @@ void ChatModel::JoinChat(const std::string& p_AccountId, const std::string& p_Li
   SendProtocolRequest(p_AccountId, joinChatRequest);
 }
 
+void ChatModel::CreateGroup(const std::string& p_AccountId, const std::string& p_Name,
+                            const std::vector<std::string>& p_UserIds)
+{
+  GetAccountOrThrow(p_AccountId);
+  if (!HasFeature(p_AccountId, FeatureCreateGroup))
+  {
+    throw ApiException(ApiErrorUnsupported, "creating groups is not supported for this account");
+  }
+
+  if (p_UserIds.empty())
+  {
+    throw ApiException(ApiErrorInvalidParams, "a group needs at least one member");
+  }
+
+  std::shared_ptr<CreateGroupRequest> createGroupRequest = std::make_shared<CreateGroupRequest>();
+  createGroupRequest->name = p_Name;
+  createGroupRequest->userIds = p_UserIds;
+  SendProtocolRequest(p_AccountId, createGroupRequest);
+}
+
 void ChatModel::PinChat(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsPinned)
 {
   GetAccountOrThrow(p_AccountId);
@@ -2241,7 +2339,9 @@ json ChatModel::MessageToJson(const std::string& p_AccountId, const std::string&
   if (!p_ChatMessage.fileInfo.empty())
   {
     FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(p_ChatMessage.fileInfo);
-    const std::string mimeType = fileInfo.fileType.empty() ? GuessMimeType(fileInfo) : fileInfo.fileType;
+    std::string mimeType;
+    std::string kind;
+    FileTypeAndKind(fileInfo, mimeType, kind);
     std::string path = fileInfo.filePath;
     FileStatus status = fileInfo.fileStatus;
     std::string name = FileUtil::BaseName(fileInfo.filePath);
@@ -2280,6 +2380,7 @@ json ChatModel::MessageToJson(const std::string& p_AccountId, const std::string&
       { "path", path },
       { "name", name },
       { "mimeType", type },
+      { "kind", kind },
       { "status", FileStatusToString(status) },
     };
   }
@@ -2369,6 +2470,7 @@ json ChatModel::CapabilitiesToJson(std::shared_ptr<Protocol> p_Protocol, const s
     { "avatars", p_Protocol->HasFeature(FeatureAvatars) },
     { "descriptions", p_Protocol->HasFeature(FeatureDescriptions) },
     { "joinChat", p_Protocol->HasFeature(FeatureJoinChat) },
+    { "createGroup", p_Protocol->HasFeature(FeatureCreateGroup) },
     { "limitedReactions", p_Protocol->HasFeature(FeatureLimitedReactions) },
     { "readReceiptsPerMessage", HasPerMessageReadReceipts(p_ProtocolName) },
   };

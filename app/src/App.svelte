@@ -25,7 +25,7 @@
   import Sidebar from './components/Sidebar.svelte';
   import Welcome from './components/Welcome.svelte';
   import Wizard from './components/Wizard.svelte';
-  import { editLastOwnMessage } from './lib/actions';
+  import { copyShortcut, editLastOwnMessage } from './lib/actions';
   import * as api from './lib/api';
   import { ACCOUNT_ACTIONS, actionFor, type Action } from './lib/keybinds.svelte';
   import { settings } from './lib/settings.svelte';
@@ -51,6 +51,7 @@
     const onResize = () => (ui.width = window.innerWidth);
     window.addEventListener('resize', onResize);
     api.setCloseToTray(settings.closeToTray);
+    if (settings.checkUpdates) setTimeout(() => store.checkUpdates(), 20000);
     api.onFileDrop(
       (paths) => {
         if (store.current && paths.length) conversation?.addFiles(paths);
@@ -137,6 +138,10 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (copyShortcut(e)) {
+      e.preventDefault();
+      return;
+    }
     const modal = ui.settingsOpen || ui.newChatOpen || !!ui.forward || !!ui.media || !!store.wizardSetupId || !!ui.confirmRequest || !!ui.lightbox || ui.recordingKeys;
     if (modal) {
       // no browser actions (print, new window, ...) behind a dialog either

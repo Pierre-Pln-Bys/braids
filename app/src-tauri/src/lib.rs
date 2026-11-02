@@ -8,6 +8,7 @@
 //! the platform bits the UI cannot do itself (tray, badge, temp files).
 
 mod daemon;
+mod linkpreview;
 mod voice;
 
 use std::fs;
@@ -51,6 +52,65 @@ async fn api_call(state: State<'_, AppState>, method: String, params: Value) -> 
     tauri::async_runtime::spawn_blocking(move || daemon.call(&method, params))
         .await
         .map_err(|e| ApiError { code: -32603, message: e.to_string() })?
+}
+
+/// Preview of a web page linked in a message (None: no preview).
+#[tauri::command]
+async fn link_preview(url: String) -> Option<linkpreview::Preview> {
+    let cache = std::env::var_os("XDG_CACHE_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"))
+        .join("braids");
+    tauri::async_runtime::spawn_blocking(move || linkpreview::preview(&url, &cache)).await.ok().flatten()
+}
+
+#[derive(serde::Serialize)]
+struct Update {
+    version: String,
+    url: String,
+}
+
+/// The latest release on GitHub when it is newer than this app (None: up to
+/// date, or the check failed).
+#[tauri::command]
+async fn check_update() -> Option<Update> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let body = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent(concat!("braids/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .get("https://api.github.com/repos/pebll/braids/releases/latest")
+            .set("Accept", "application/vnd.github+json")
+            .call()
+            .ok()?
+            .into_string()
+            .ok()?;
+        let release: Value = serde_json::from_str(&body).ok()?;
+        let tag = release["tag_name"].as_str()?.trim_start_matches('v').to_string();
+        let newer = version_parts(&tag) > version_parts(env!("CARGO_PKG_VERSION"));
+        newer.then(|| Update { version: tag, url: release["html_url"].as_str().unwrap_or_default().to_string() })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+fn version_parts(v: &str) -> Vec<u64> {
+    v.split(['.', '-']).map_while(|p| p.parse().ok()).collect()
+}
+
+/// How this app was installed: "flatpak", "appimage" or "" (tarball, .deb,
+/// development); start at login is not offered in a Flatpak.
+#[tauri::command]
+fn install_kind() -> &'static str {
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        "flatpak"
+    } else if std::env::var_os("APPIMAGE").is_some() {
+        "appimage"
+    } else {
+        ""
+    }
 }
 
 #[tauri::command]
@@ -207,6 +267,9 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)));
     }
     builder
+        // started at login with --minimized: only the tray icon
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -219,10 +282,20 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.state::<AppState>().daemon.start(handle.clone());
-            if let Err(e) = build_tray(&handle) {
-                // no tray (e.g. no status notifier host): closing the window quits
-                eprintln!("braids: no tray icon: {e}");
-                app.state::<AppState>().close_to_tray.store(false, Ordering::SeqCst);
+            let has_tray = match build_tray(&handle) {
+                Ok(_) => true,
+                Err(e) => {
+                    // no tray (e.g. no status notifier host): closing the window quits
+                    eprintln!("braids: no tray icon: {e}");
+                    app.state::<AppState>().close_to_tray.store(false, Ordering::SeqCst);
+                    false
+                }
+            };
+            // the window starts hidden (tauri.conf.json): shown unless started
+            // at login into the tray
+            let minimized = std::env::args().any(|a| a == "--minimized");
+            if !(minimized && has_tray) {
+                show_window(&handle);
             }
             Ok(())
         })
@@ -235,7 +308,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![api_call, daemon_connected, set_close_to_tray, set_badge, save_temp_file, save_file_as, licenses_path, voice_start, voice_stop])
+        .invoke_handler(tauri::generate_handler![api_call, daemon_connected, set_close_to_tray, set_badge, save_temp_file, save_file_as, licenses_path, voice_start, voice_stop, link_preview, check_update, install_kind])
         .run(tauri::generate_context!())
         .expect("error while running braids");
 }

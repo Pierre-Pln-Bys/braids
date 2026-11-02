@@ -42,6 +42,7 @@ class Ui {
   // image viewer: the images it can switch between and the one shown
   lightbox = $state<{ items: LightboxItem[]; index: number } | null>(null);
   confirmRequest = $state<ConfirmRequest | null>(null);
+  hoverMessage: Message | null = null; // under the mouse, for Ctrl+C without a selection (not reactive)
   menu = $state<{ x: number; y: number; items: MenuItem[]; leftOf?: boolean } | null>(null); // leftOf: x is the right edge
   reply = $state<Message | null>(null);
   edit = $state<Message | null>(null);

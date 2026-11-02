@@ -146,9 +146,6 @@ def main():
                      4, "editing others' messages unsupported")
         expect_error(lambda: d.call("chats.pin", {"accountId": account_id, "chatId": group["id"]}),
                      4, "pin unsupported by capabilities")
-        expect_error(lambda: d.call("messages.pin", {"accountId": account_id, "chatId": group["id"],
-                                                     "msgId": msgs[-1]["id"]}),
-                     4, "message pin unsupported by capabilities")
         expect_error(lambda: d.call("chats.list", {"accountId": 5}), -32602, "invalid param type rejected")
         d.call("messages.markRead", {"accountId": account_id, "chatId": group["id"], "msgId": msgs[-1]["id"]})
         check(d.call("contacts.list", {"accountId": account_id}), "contacts.list")
@@ -195,6 +192,40 @@ def main():
         expect_error(lambda: d.call("media.list", {"kind": "photos"}), -32602, "unknown media kind rejected")
         paged = d.call("media.list", {"kind": "links", "limit": 1, "beforeTime": links[0]["time"]})
         check(paged["items"] == [], "paging past the last item")
+
+        # pinned messages and message search
+        link_msg = links[0]
+        d.call("messages.pin", {"accountId": account_id, "chatId": group["id"], "msgId": link_msg["id"]})
+        d.wait_event("message.updated", lambda p: p["id"] == link_msg["id"] and p["isPinned"])
+        pinned = d.call("media.list", {"accountId": account_id, "chatId": group["id"], "kind": "pinned"})["items"]
+        check([m["id"] for m in pinned] == [link_msg["id"]], "media.list pinned")
+        found = d.call("messages.search", {"text": "EXAMPLE.org"})["items"]
+        check([m["id"] for m in found] == [link_msg["id"]], "messages.search, case-insensitive, all chats")
+        check(d.call("messages.search", {"text": "100%"})["items"] == [], "search escapes LIKE wildcards")
+        expect_error(lambda: d.call("messages.search", {"text": ""}), -32602, "empty search rejected")
+
+        # stickers and GIFs are marked by kind
+        sticker = os.path.join(confdir, "smile.sticker.png")
+        with open(sticker, "wb") as f:
+            f.write(open(img, "rb").read())
+        d.call("messages.send", {"accountId": account_id, "chatId": group["id"], "filePath": sticker})
+        added = d.wait_event("message.added", lambda p: (p.get("file") or {}).get("name") == "smile.sticker.png")
+        check(added["file"]["kind"] == "sticker", "file kind sticker")
+        check(all(m["file"]["kind"] != "sticker" for m in
+                  d.call("media.list", {"accountId": account_id, "chatId": group["id"], "kind": "media"})["items"]),
+              "stickers are not shared media")
+
+        # a new group
+        check(account["capabilities"]["createGroup"], "createGroup capability")
+        d.call("chats.createGroup", {"accountId": account_id, "name": "Road trip ", "userIds": ["Jim_0", "Pam_0"]})
+        created = d.wait_event("chat.groupCreated", lambda p: p["name"] == "Road trip")
+        check(created["success"] and created["chatId"], "chat.groupCreated")
+        wait_until(lambda: any(c["id"] == created["chatId"] and c["isGroup"] for c in d.call("chats.list")),
+                   "new group listed")
+        expect_error(lambda: d.call("chats.createGroup", {"accountId": account_id, "name": "x", "userIds": []}),
+                     -32602, "group without members rejected")
+        expect_error(lambda: d.call("chats.createGroup", {"accountId": account_id, "name": " ", "userIds": ["Jim_0"]}),
+                     -32602, "group without a name rejected")
 
         # braids' own mute setting, kept across restarts
         check(account["capabilities"]["muteChat"], "mute capability")

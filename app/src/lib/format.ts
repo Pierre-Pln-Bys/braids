@@ -96,6 +96,16 @@ export function plainText(text: string): string {
 // http(s) links, and invite links often written without the scheme
 const URL_RE = /\b((?:https?:\/\/|(?:t\.me|telegram\.me|chat\.whatsapp\.com|matrix\.to)\/)[^\s<>"']+[^\s<>"'.,;:!?)\]])/g;
 
+// the first http(s) link of a text, for its preview ('' without one; invite
+// links open the join dialog instead)
+export function firstLink(text: string): string {
+  for (const m of text.matchAll(URL_RE)) {
+    const url = m[1];
+    if (/^https?:\/\//.test(url) && !/^https?:\/\/(t\.me|telegram\.me|chat\.whatsapp\.com|matrix\.to)\//.test(url)) return url;
+  }
+  return '';
+}
+
 function linkHtml(url: string): string {
   const href = /^https?:\/\//.test(url) ? url : `https://${url}`;
   return `<a href="${escapeHtml(href)}" data-link="1">${escapeHtml(url)}</a>`;

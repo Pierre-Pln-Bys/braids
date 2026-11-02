@@ -28,6 +28,8 @@ class Settings {
   closeToTray = $state(true);
   sidebarCollapsed = $state(false);
   enterSends = $state(true);
+  linkPreviews = $state(true); // fetch the title and image of linked pages
+  checkUpdates = $state(true); // ask GitHub for a newer release once a day
   accounts = $state<Record<string, AccountMeta>>({});
   categories = $state<Record<string, ChatCategory>>({}); // chat key -> category
   keybinds = $state<Partial<Record<string, string[]>>>({}); // action -> combos, only changed ones (keybinds.svelte.ts)
@@ -35,7 +37,7 @@ class Settings {
   constructor() {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-      for (const k of ['theme', 'notifications', 'notificationPreview', 'closeToTray', 'sidebarCollapsed', 'enterSends', 'accounts', 'categories', 'keybinds'] as const) {
+      for (const k of ['theme', 'notifications', 'notificationPreview', 'closeToTray', 'sidebarCollapsed', 'enterSends', 'linkPreviews', 'checkUpdates', 'accounts', 'categories', 'keybinds'] as const) {
         if (saved[k] !== undefined) (this as any)[k] = saved[k];
       }
     } catch {
@@ -52,6 +54,8 @@ class Settings {
         closeToTray: this.closeToTray,
         sidebarCollapsed: this.sidebarCollapsed,
         enterSends: this.enterSends,
+        linkPreviews: this.linkPreviews,
+        checkUpdates: this.checkUpdates,
         accounts: this.accounts,
         categories: this.categories,
         keybinds: this.keybinds,

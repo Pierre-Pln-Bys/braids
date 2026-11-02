@@ -79,7 +79,7 @@ bool MxChat::HasFeature(ProtocolFeature p_ProtocolFeature) const
     FeatureEditMessagesAnytime |
     FeatureAutoGetContactsOnLogin |
     FeaturePinChat |
-    FeatureAvatars | FeatureDescriptions | FeatureJoinChat;
+    FeatureAvatars | FeatureDescriptions | FeatureJoinChat | FeatureCreateGroup;
   return (p_ProtocolFeature & customFeatures);
 }
 
@@ -670,6 +670,16 @@ void MxChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case CreateGroupRequestType:
+      {
+        std::shared_ptr<CreateGroupRequest> createGroupRequest =
+          std::static_pointer_cast<CreateGroupRequest>(p_RequestMessage);
+        const std::string userIds = StrUtil::Join(createGroupRequest->userIds, "\n");
+        CMxCreateGroup(m_ConnId, const_cast<char*>(createGroupRequest->name.c_str()),
+                       const_cast<char*>(userIds.c_str()));
+      }
+      break;
+
     case GetGroupMembersRequestType:
       {
         std::shared_ptr<GetGroupMembersRequest> getGroupMembersRequest =
@@ -1246,6 +1256,24 @@ void MxJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId,
   }
 
   free(p_Link);
+  free(p_ChatId);
+  free(p_Error);
+}
+
+void MxCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error)
+{
+  MxChat* instance = MxChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<CreateGroupNotify> notify = std::make_shared<CreateGroupNotify>(instance->GetProfileId());
+    notify->name = std::string(p_Name);
+    notify->success = (p_Success != 0);
+    notify->chatId = std::string(p_ChatId);
+    notify->error = std::string(p_Error);
+    DeferNotify(instance, notify);
+  }
+
+  free(p_Name);
   free(p_ChatId);
   free(p_Error);
 }

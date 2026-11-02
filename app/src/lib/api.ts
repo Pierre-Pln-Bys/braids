@@ -56,6 +56,77 @@ export async function subscribe(onEvent: EventHandler, onConnection: ConnectionH
   source.onerror = () => onConnection(false);
 }
 
+// Text to the clipboard. The desktop app goes through the shell: WebKitGTK
+// does not allow the async clipboard API on the app's own scheme.
+export async function copyText(text: string): Promise<void> {
+  if (isTauri) {
+    const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
+    await writeText(text);
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+}
+
+// ---- updates and start at login (desktop app only) ----
+
+export interface Update {
+  version: string;
+  url: string;
+}
+
+// A newer release than this app, or null (up to date, offline, browser).
+export async function checkUpdate(): Promise<Update | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<Update | null>('check_update');
+}
+
+// "flatpak", "appimage" or "" (tarball, .deb, development)
+export async function installKind(): Promise<string> {
+  if (!isTauri) return 'browser';
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string>('install_kind');
+}
+
+export async function autostartEnabled(): Promise<boolean> {
+  if (!isTauri) return false;
+  const { isEnabled } = await import('@tauri-apps/plugin-autostart');
+  return isEnabled();
+}
+
+export async function setAutostart(on: boolean): Promise<void> {
+  const { enable, disable } = await import('@tauri-apps/plugin-autostart');
+  await (on ? enable() : disable());
+}
+
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  siteName: string;
+  image: string; // local file (desktop app) or URL (browser), '' without one
+}
+
+const previews = new Map<string, Promise<LinkPreview | null>>();
+
+// Title, description and image of a linked page (null: none); one request
+// per URL and session.
+export function linkPreview(url: string): Promise<LinkPreview | null> {
+  let p = previews.get(url);
+  if (!p) {
+    p = (async () => {
+      if (isTauri) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return invoke<LinkPreview | null>('link_preview', { url });
+      }
+      const res = await fetch(`/__braids/preview?url=${encodeURIComponent(url)}`);
+      return res.ok ? ((await res.json()) as LinkPreview | null) : null;
+    })().catch(() => null);
+    previews.set(url, p);
+  }
+  return p;
+}
+
 export function fileUrl(path: string): string {
   if (!path) return '';
   if (isTauri) {

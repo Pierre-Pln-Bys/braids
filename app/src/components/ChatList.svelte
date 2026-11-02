@@ -6,15 +6,18 @@
   braids is distributed under the GNU AGPL v3 license, see LICENSE for details.
 
   The unified inbox: chats of all accounts (or the selected folder/account),
-  newest activity first, favorites with a gold avatar ring. Search by name, context menu per chat.
+  newest activity first, favorites with a gold avatar ring. Search by name,
+  and through the messages of all chats (messages.search); context menu per chat.
 -->
 <script lang="ts">
   import { AtSign, BellOff, LoaderCircle, Menu as MenuIcon, Search, SquarePen, WifiOff, X } from '@lucide/svelte';
+  import { untrack } from 'svelte';
   import { chatMenu } from '../lib/actions';
+  import * as api from '../lib/api';
   import { listTime } from '../lib/format';
   import { bindings, comboKeys } from '../lib/keybinds.svelte';
   import { chatKey, store } from '../lib/store.svelte';
-  import type { Chat } from '../lib/types';
+  import type { Chat, Message } from '../lib/types';
   import { ui } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
   import Braid from './Braid.svelte';
@@ -53,6 +56,60 @@
     if (m.system) return { prefix: '', prefixKind: '', text: store.systemLine(m) };
     const prefix = m.isOutgoing ? 'You:' : c.isGroup ? `${store.senderName(m).split(' ')[0]}:` : '';
     return { prefix, prefixKind: 'sender', text: store.previewText(m) };
+  }
+
+  // ---- message search (2+ characters), newest first, paged ----
+  let found = $state<Message[]>([]);
+  let foundNext = $state(0);
+  let finding = $state(false);
+  let searchGen = 0;
+  const msgQuery = $derived(store.search.trim().length >= 2 ? store.search.trim() : '');
+
+  $effect(() => {
+    const q = msgQuery;
+    const scope = store.filter.kind === 'account' ? store.filter.accountId : '';
+    untrack(() => {
+      const gen = ++searchGen;
+      found = [];
+      foundNext = 0;
+      finding = !!q;
+      if (!q) return;
+      setTimeout(() => gen === searchGen && findMessages(q, scope, 0, gen), 250);
+    });
+  });
+
+  async function findMessages(q: string, scope: string, before: number, gen: number) {
+    finding = true;
+    try {
+      const r = await api.call('messages.search', { text: q, limit: 30, ...(scope ? { accountId: scope } : {}), ...(before ? { beforeTime: before } : {}) });
+      if (gen !== searchGen) return;
+      found = [...found, ...(r.items as Message[]).filter((m) => store.chats[chatKey(m.accountId, m.chatId)])];
+      foundNext = r.nextBefore;
+    } catch {
+      if (gen === searchGen) foundNext = 0;
+    } finally {
+      if (gen === searchGen) finding = false;
+    }
+  }
+
+  function moreMessages() {
+    if (!finding && foundNext) findMessages(msgQuery, store.filter.kind === 'account' ? store.filter.accountId : '', foundNext, searchGen);
+  }
+
+  function openFound(m: Message) {
+    const key = chatKey(m.accountId, m.chatId);
+    store.openChat(key).then(() => {
+      ui.jumpRequest = { chatKey: key, msgId: m.id };
+    });
+  }
+
+  // the text around the first match, with the match marked
+  function snippet(text: string, q: string): { before: string; match: string; after: string } {
+    const flat = text.replace(/\s+/g, ' ');
+    const i = flat.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0) return { before: flat.slice(0, 80), match: '', after: '' };
+    const start = Math.max(0, i - 24);
+    return { before: (start ? '…' : '') + flat.slice(start, i), match: flat.slice(i, i + q.length), after: flat.slice(i + q.length, i + q.length + 80) };
   }
 
   function onKey(e: KeyboardEvent) {
@@ -179,7 +236,7 @@
             <div class="skeleton" style:opacity={1 - i * 0.18}><span class="sk-av"></span><span class="sk-lines"><span></span><span></span></span></div>
           {/each}
         {:else if store.search}
-          <p>No chats match “{store.search}”.</p>
+          {#if !msgQuery}<p>No chats match “{store.search}”.</p>{/if}
         {:else if store.filter.kind === 'archived'}
           <p>No archived chats.</p>
         {:else if store.filter.kind === 'favorites'}
@@ -190,10 +247,43 @@
         {/if}
       </div>
     {/each}
+
+    {#if msgQuery}
+      <div class="found" aria-label="Messages">
+        <h3>Messages</h3>
+        {#each found as m (`${m.accountId}\u0001${m.chatId}\u0001${m.id}`)}
+          {@const c = store.chats[chatKey(m.accountId, m.chatId)]}
+          {@const sn = snippet(m.text, msgQuery)}
+          <button class="hit" onclick={() => openFound(m)}>
+            <Avatar name={store.chatName(c)} id={c.id} accountId={c.accountId} group={c.isGroup} size={36} ring="var(--bg-1)" />
+            <span class="body">
+              <span class="line1"><span class="name">{store.chatName(c)}</span><span class="grow"></span><span class="time">{listTime(m.time)}</span></span>
+              <span class="hit-text">{#if c.isGroup || m.isOutgoing}<span class="prefix">{m.isOutgoing ? 'You' : store.senderName(m).split(' ')[0]}:</span> {/if}{sn.before}<mark>{sn.match}</mark>{sn.after}</span>
+            </span>
+          </button>
+        {/each}
+        {#if finding}
+          <p class="found-status"><LoaderCircle size={14} class="spin" />Searching messages…</p>
+        {:else if !found.length}
+          <p class="found-status">No messages contain “{msgQuery}”.</p>
+        {:else if foundNext}
+          <button class="more" onclick={moreMessages}>More results</button>
+        {/if}
+      </div>
+    {/if}
   </div>
 </section>
 
 <style>
+  .found { padding: 4px 0 12px; }
+  .found h3 { margin: 10px 14px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+  .hit { width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border: 0; background: none; text-align: left; color: var(--text); }
+  .hit:hover { background: var(--hover); }
+  .hit .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .hit-text { font-size: 13px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .hit-text mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; font-weight: 600; }
+  .found-status { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: var(--text-muted); margin: 8px 12px; }
+  .more { display: block; margin: 6px auto 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
   .chatlist { width: 330px; flex-shrink: 0; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
   .head { padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 10px; }
   .title-row { display: flex; align-items: center; gap: 6px; }

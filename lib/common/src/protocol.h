@@ -38,6 +38,7 @@ enum ProtocolFeature
   FeatureAvatars = (1 << 12), // braids extension: handles GetAvatarRequest
   FeatureDescriptions = (1 << 13), // braids extension: handles GetDescriptionRequest
   FeatureJoinChat = (1 << 14), // braids extension: handles JoinChatRequest
+  FeatureCreateGroup = (1 << 15), // braids extension: handles CreateGroupRequest
 };
 
 // Interactive authentication (account setup and re-login), braids extension.
@@ -179,6 +180,7 @@ enum MessageType
   GetAvatarRequestType, // braids extension
   GetDescriptionRequestType, // braids extension
   JoinChatRequestType, // braids extension
+  CreateGroupRequestType, // braids extension
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -210,6 +212,7 @@ enum MessageType
   NewAvatarNotifyType, // braids extension
   NewDescriptionNotifyType, // braids extension
   JoinChatNotifyType, // braids extension
+  CreateGroupNotifyType, // braids extension
 };
 
 struct ContactInfo
@@ -578,6 +581,16 @@ public:
   std::string link;
 };
 
+// A new group with the given members (user ids as in contacts), braids
+// extension. Answered with CreateGroupNotify.
+class CreateGroupRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return CreateGroupRequestType; }
+  std::string name;
+  std::vector<std::string> userIds;
+};
+
 // Service messages
 class ServiceMessage
 {
@@ -802,6 +815,18 @@ public:
   std::string link;
   bool success = false;
   std::string chatId; // the joined chat
+  std::string error; // why not, for the user
+};
+
+class CreateGroupNotify : public ServiceMessage
+{
+public:
+  explicit CreateGroupNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return CreateGroupNotifyType; }
+  std::string name;
+  bool success = false;
+  std::string chatId; // the new group
   std::string error; // why not, for the user
 };
 

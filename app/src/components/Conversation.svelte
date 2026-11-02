@@ -11,8 +11,8 @@
   revealed while scrolling up), so long chats stay fast.
 -->
 <script lang="ts">
-  import { ArrowDown, ChevronLeft, ChevronUp, EllipsisVertical, Lock, PanelRight, Search, Upload, X } from '@lucide/svelte';
-  import { tick } from 'svelte';
+  import { ArrowDown, ChevronLeft, ChevronUp, EllipsisVertical, Lock, PanelRight, Pin, Search, Upload, X } from '@lucide/svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { chatMenu } from '../lib/actions';
   import * as api from '../lib/api';
   import { dayLabel, isSameDay, lastSeen, startOfDay } from '../lib/format';
@@ -207,6 +207,47 @@
     return false;
   }
 
+  // ---- pinned messages: a bar under the header; a click shows the pinned
+  // message and moves on to the next older one ----
+  let pinned = $state<Message[]>([]);
+  let pinIndex = $state(0);
+  const pin = $derived(pinned.length ? pinned[Math.min(pinIndex, pinned.length - 1)] : null);
+
+  $effect(() => {
+    const key = chatKey;
+    untrack(() => {
+      pinned = [];
+      pinIndex = 0;
+      api.call('media.list', { kind: 'pinned', accountId, chatId, limit: 50 })
+        .then((r) => { if (key === chatKey) pinned = r.items as Message[]; })
+        .catch(() => {});
+    });
+  });
+
+  const pinListener = (m: Message) => {
+    if (m.accountId !== accountId || m.chatId !== chatId) return;
+    const i = pinned.findIndex((x) => x.id === m.id);
+    if (m.isPinned && !m.isDeleted) {
+      if (i >= 0) pinned[i] = m;
+      else pinned = [...pinned, m].sort((a, b) => b.time - a.time);
+    } else if (i >= 0) {
+      pinned = pinned.filter((x) => x.id !== m.id);
+    }
+  };
+  store.messageListeners.add(pinListener);
+  onDestroy(() => store.messageListeners.delete(pinListener));
+
+  async function showPin() {
+    if (!pin) return;
+    const id = pin.id;
+    pinIndex = (pinIndex + 1) % pinned.length;
+    await jumpTo(id);
+  }
+
+  function unpin(m: Message) {
+    api.call('messages.pin', { accountId, chatId, msgId: m.id, isPinned: false }).catch((e) => store.toastError(e));
+  }
+
   async function findNext() {
     const text = searchText.trim();
     if (!text) return;
@@ -312,6 +353,24 @@
       </div>
     {/if}
 
+    {#if pin}
+      <div class="pin-bar">
+        <button class="pin-main" onclick={showPin} title="Show the pinned message">
+          <span class="pin-marks" aria-hidden="true">
+            {#each pinned.slice(0, 4) as _, i}<span class:on={i === Math.min(pinIndex, pinned.length - 1) % 4}></span>{/each}
+          </span>
+          <Pin size={15} />
+          <span class="pin-text">
+            <b>{pinned.length > 1 ? `Pinned message ${Math.min(pinIndex, pinned.length - 1) + 1} of ${pinned.length}` : 'Pinned message'}</b>
+            <span>{store.previewText(pin)}</span>
+          </span>
+        </button>
+        {#if account.capabilities.pinMessage}
+          <button class="icon-btn sm" aria-label="Unpin" title="Unpin" onclick={() => unpin(pin)}><X size={16} /></button>
+        {/if}
+      </div>
+    {/if}
+
     {#if ui.chatSearchOpen}
       <div class="search-bar">
         <Search size={16} />
@@ -411,6 +470,15 @@
   .account-banner { padding: 8px 16px; font-size: 13px; background: var(--warning-soft); color: var(--text); display: flex; gap: 10px; align-items: center; }
   .account-banner.error { background: var(--danger-soft); }
 
+  .pin-bar { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .pin-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 4px; border-radius: var(--radius-md); text-align: left; color: var(--accent); }
+  .pin-main:hover { background: var(--hover); }
+  .pin-marks { display: flex; flex-direction: column; gap: 2px; align-self: stretch; justify-content: center; }
+  .pin-marks span { width: 2px; flex: 1; max-height: 10px; border-radius: 1px; background: var(--border-strong); }
+  .pin-marks span.on { background: var(--accent); }
+  .pin-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 17px; }
+  .pin-text b { font-size: 12px; font-weight: 600; color: var(--accent); }
+  .pin-text span { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .search-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 16px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
   .search-bar input { flex: 1; border: 0; outline: none; background: transparent; font-size: 14px; color: var(--text); height: 30px; }
   .search-status { font-size: 12px; }

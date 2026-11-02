@@ -65,7 +65,7 @@ std::string SgChat::GetProfileDisplayName() const
 bool SgChat::HasFeature(ProtocolFeature p_ProtocolFeature) const
 {
   // Signal allows editing within ~24 hours
-  int customFeatures = FeatureEditMessagesWithinTwoDays | FeatureAvatars | FeatureDescriptions;
+  int customFeatures = FeatureEditMessagesWithinTwoDays | FeatureAvatars | FeatureDescriptions | FeatureCreateGroup;
   return (p_ProtocolFeature & customFeatures);
 }
 
@@ -732,6 +732,16 @@ void SgChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case CreateGroupRequestType:
+      {
+        std::shared_ptr<CreateGroupRequest> createGroupRequest =
+          std::static_pointer_cast<CreateGroupRequest>(p_RequestMessage);
+        const std::string userIds = StrUtil::Join(createGroupRequest->userIds, "\n");
+        CSgCreateGroup(m_ConnId, const_cast<char*>(createGroupRequest->name.c_str()),
+                       const_cast<char*>(userIds.c_str()));
+      }
+      break;
+
     case GetGroupMembersRequestType:
       {
         LOG_DEBUG("get group members");
@@ -982,6 +992,27 @@ void SgNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description)
 
   free(p_Id);
   free(p_Description);
+}
+
+void SgCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error)
+{
+  SgChat* instance = SgChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<CreateGroupNotify> notify = std::make_shared<CreateGroupNotify>(instance->GetProfileId());
+    notify->name = std::string(p_Name);
+    notify->success = (p_Success != 0);
+    notify->chatId = std::string(p_ChatId);
+    notify->error = std::string(p_Error);
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = notify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_Name);
+  free(p_ChatId);
+  free(p_Error);
 }
 
 void SgNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson)

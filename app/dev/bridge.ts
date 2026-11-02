@@ -10,6 +10,7 @@
 //   GET  /__braids/events   server-sent events: daemon events and connection state
 //   GET  /__braids/file     ?path=  local file (downloads, attachments)
 //   POST /__braids/upload   ?name=  body saved to a temp file -> {path}
+//   GET  /__braids/preview  ?url=   link preview {url, title, description, siteName, image (URL)} | null
 // Only active in the dev server, which listens on localhost.
 
 import fs from 'node:fs';
@@ -154,6 +155,9 @@ export function braidsBridge(): Plugin {
           fs.writeFileSync(file, await readBody(req), { mode: 0o600 });
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ path: file }));
+        } else if (url.pathname === '/__braids/preview') {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(await linkPreview(url.searchParams.get('url') ?? '')));
         } else {
           res.statusCode = 404;
           res.end();
@@ -161,4 +165,37 @@ export function braidsBridge(): Plugin {
       });
     },
   };
+}
+
+// Link previews for development (the desktop app fetches them in the Rust
+// shell, src-tauri/src/linkpreview.rs): the page's Open Graph tags, the image
+// as its URL.
+async function linkPreview(raw: string): Promise<Record<string, string> | null> {
+  try {
+    const page = new URL(raw);
+    if (page.protocol !== 'http:' && page.protocol !== 'https:') return null;
+    const res = await fetch(page, { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Mozilla/5.0 braids link preview' } });
+    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return null;
+    const html = (await res.text()).slice(0, 768 * 1024);
+    const meta: Record<string, string> = {};
+    for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+      const attr = (n: string) => tag.match(new RegExp(`${n}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'))?.slice(2).find((v) => v !== undefined);
+      const key = (attr('property') ?? attr('name'))?.toLowerCase();
+      const content = attr('content');
+      if (key && content !== undefined && !(key in meta)) meta[key] = content;
+    }
+    const decode = (v = '') => v.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+    const title = decode(meta['og:title'] ?? meta['twitter:title'] ?? html.match(/<title[^>]*>([^<]*)/i)?.[1]);
+    if (!title) return null;
+    const image = meta['og:image'] ?? meta['twitter:image'];
+    return {
+      url: res.url,
+      title,
+      description: decode(meta['og:description'] ?? meta['twitter:description'] ?? meta.description),
+      siteName: decode(meta['og:site_name']) || page.host.replace(/^www\./, ''),
+      image: image ? new URL(decode(image), res.url).toString() : '',
+    };
+  } catch {
+    return null;
+  }
 }

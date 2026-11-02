@@ -489,6 +489,9 @@ class Store {
       case 'chat.joined':
         this.pendingJoins.get(`${p.accountId}\u0001${p.link}`)?.(p);
         break;
+      case 'chat.groupCreated':
+        this.pendingJoins.get(`${p.accountId}\u0002${p.name}`)?.(p);
+        break;
       case 'contacts.updated': {
         const map = p.fullSync ? {} : { ...(this.contacts[p.accountId] ?? {}) };
         for (const c of p.contacts as Contact[]) map[c.id] = c;
@@ -729,6 +732,26 @@ class Store {
     }
   }
 
+  // Creates a group with the given members and opens it; throws with the
+  // protocol's reason when that fails.
+  async createGroup(accountId: string, name: string, userIds: string[]): Promise<void> {
+    const id = `${accountId}\u0002${name.trim()}`;
+    const result = new Promise<{ success: boolean; chatId: string; error: string }>((resolve) => {
+      this.pendingJoins.set(id, resolve);
+      setTimeout(() => resolve({ success: false, chatId: '', error: 'No answer from the messenger.' }), 60000);
+    });
+    try {
+      await api.call('chats.createGroup', { accountId, name: name.trim(), userIds });
+      const r = await result;
+      if (!r.success) throw new Error(r.error || 'Could not create the group.');
+      const key = chatKey(accountId, r.chatId);
+      for (let i = 0; i < 100 && !this.chats[key]; i++) await new Promise((res) => setTimeout(res, 100));
+      if (this.chats[key]) await this.openChat(key);
+    } finally {
+      this.pendingJoins.delete(id);
+    }
+  }
+
   // ---- setups ----
 
   async addAccount(protocol: string): Promise<string> {
@@ -771,6 +794,37 @@ class Store {
   async authCancel(scope: { setupId?: string; accountId?: string }) {
     await api.call('accounts.authCancel', scope).catch(() => {});
     if (scope.accountId) delete this.accountPrompts[scope.accountId];
+  }
+
+  // ---- updates ----
+
+  update = $state<api.Update | null>(null);
+
+  // Asks GitHub for a newer release (at most once a day unless forced) and
+  // offers it in a toast once per version.
+  async checkUpdates(force = false): Promise<api.Update | null> {
+    const KEY = 'braids.update.checked';
+    try {
+      if (!force && Date.now() - Number(localStorage.getItem(KEY) ?? 0) < 24 * 3600 * 1000) return this.update;
+      localStorage.setItem(KEY, String(Date.now()));
+    } catch {
+      // no storage: check every start
+    }
+    this.update = await api.checkUpdate().catch(() => null);
+    const u = this.update;
+    if (u && !force) {
+      let told = '';
+      try {
+        told = localStorage.getItem('braids.update.told') ?? '';
+        localStorage.setItem('braids.update.told', u.version);
+      } catch {
+        // tell again next time
+      }
+      if (told !== u.version) {
+        this.toast(`braids ${u.version} is available.`, 'info', { label: 'Get it', run: () => api.openUrl(u.url).catch((e) => this.toastError(e)) });
+      }
+    }
+    return u;
   }
 
   // ---- toasts ----
@@ -818,12 +872,14 @@ export function fileReady(f: FileRef | null): boolean {
 // images and videos of messages, for the viewer
 export function galleryItems(messages: Message[]): { path: string; name: string; video?: boolean }[] {
   return messages
-    .filter((x) => fileReady(x.file) && /^(image|video)\//.test(fileMime(x.file)))
+    .filter((x) => fileReady(x.file) && x.file!.kind !== 'sticker' && /^(image|video)\//.test(fileMime(x.file)))
     .map((x) => ({ path: x.file!.path, name: x.file!.name, video: fileMime(x.file).startsWith('video/') }));
 }
 
 export function fileLabel(m: Message): string {
   const mime = fileMime(m.file);
+  if (m.file?.kind === 'sticker') return 'Sticker';
+  if (m.file?.kind === 'gif') return 'GIF';
   if (mime.startsWith('image/')) return 'Photo';
   if (mime.startsWith('video/')) return 'Video';
   if (mime.startsWith('audio/')) return 'Audio';

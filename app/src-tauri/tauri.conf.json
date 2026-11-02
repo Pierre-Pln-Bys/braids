@@ -17,11 +17,12 @@
         "width": 1280,
         "height": 820,
         "minWidth": 380,
-        "minHeight": 480
+        "minHeight": 480,
+        "visible": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": {
