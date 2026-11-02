@@ -17,6 +17,7 @@
   import { LoaderCircle, Pause, Play, TriangleAlert } from '@lucide/svelte';
   import { onDestroy } from 'svelte';
   import * as api from '../lib/api';
+  import { store } from '../lib/store.svelte';
 
   let { path, id, status, onDownload }: {
     path: string; // local file, '' while not downloaded
@@ -34,6 +35,36 @@
   let duration = $state(0);
   let speed = $state(1);
   let failed = $state(false);
+  // the file as served; on an error once more as a blob typed audio/ogg (the
+  // desktop app's file protocol serves Opus as audio/opus, which WebKitGTK
+  // may refuse although it plays the same data as Ogg)
+  let blobSrc = $state('');
+  const src = $derived(blobSrc || (path ? api.fileUrl(path) : ''));
+  let retried = false;
+  let blobUrl = '';
+
+  async function onError() {
+    if (retried || !path) {
+      failed = true;
+      return;
+    }
+    retried = true;
+    try {
+      const data = await (await fetch(api.fileUrl(path))).arrayBuffer();
+      const lower = path.toLowerCase();
+      const type = lower.endsWith('.mp3') ? 'audio/mpeg' : lower.endsWith('.m4a') || lower.endsWith('.aac') ? 'audio/mp4'
+        : lower.endsWith('.wav') ? 'audio/wav' : lower.endsWith('.webm') ? 'audio/webm' : 'audio/ogg';
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      blobUrl = URL.createObjectURL(new Blob([data], { type }));
+      blobSrc = blobUrl;
+    } catch {
+      failed = true;
+    }
+  }
+
+  function openExternally() {
+    api.openPath(path).catch((e) => store.toastError(e));
+  }
 
   // a stable pseudo waveform per message (the protocols do not all send one)
   const bars = $derived.by(() => {
@@ -111,11 +142,14 @@
   onDestroy(() => {
     if (playing === audio) playing = null;
     audio?.pause();
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
   });
 </script>
 
 <div class="voice" class:playing={isPlaying}>
-  <button class="play" onclick={toggle} aria-label={!path ? 'Download voice message' : isPlaying ? 'Pause' : 'Play'} disabled={failed}>
+  <button class="play" class:failed onclick={failed ? openExternally : toggle}
+    aria-label={failed ? 'Open in your audio player' : !path ? 'Download voice message' : isPlaying ? 'Pause' : 'Play'}
+    title={failed ? 'Open in your audio player' : undefined}>
     {#if failed}<TriangleAlert size={18} />
     {:else if status === 'downloading'}<LoaderCircle size={18} class="spin" />
     {:else if isPlaying}<Pause size={18} fill="currentColor" />
@@ -129,21 +163,21 @@
       {/each}
     </div>
     <div class="info">
-      <span class="time">{failed ? 'Cannot play this audio' : isPlaying || current > 0 ? fmt(current) : fmt(duration)}</span>
+      <span class="time">{failed ? 'Cannot play here — click to open it' : isPlaying || current > 0 ? fmt(current) : fmt(duration)}</span>
       <button class="speed" onclick={cycleSpeed} aria-label="Playback speed">{speed}×</button>
     </div>
   </div>
   {#if path}
     <audio
       bind:this={audio}
-      src={api.fileUrl(path)}
+      {src}
       preload="metadata"
       onloadedmetadata={onMeta}
       ontimeupdate={() => audio && (current = audio.currentTime)}
       onplay={() => (isPlaying = true)}
       onpause={() => (isPlaying = false)}
       onended={() => { isPlaying = false; current = 0; }}
-      onerror={() => (failed = true)}
+      onerror={onError}
     ></audio>
   {/if}
 </div>
@@ -154,7 +188,7 @@
     width: 38px; height: 38px; border-radius: 19px; border: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
     background: var(--accent); color: var(--on-accent);
   }
-  .play:disabled { background: var(--surface-2); color: var(--text-muted); }
+  .play.failed { background: var(--surface-2); color: var(--text-muted); }
   .track { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .bars { height: 26px; display: flex; align-items: center; gap: 2px; cursor: pointer; outline: none; border-radius: 4px; }
   .bars:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
