@@ -69,6 +69,7 @@ private:
   void CallMessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMessage);
   void PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage);
   bool RunRecoveryPrompt(bool p_IsSetup);
+  std::string SsoLogin(const std::string& p_Homeserver);
 
 private:
   std::string m_ProfileId;

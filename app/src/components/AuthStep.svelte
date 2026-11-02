@@ -10,8 +10,10 @@
   existing accounts (e.g. Telegram re-login, Matrix recovery key).
 -->
 <script lang="ts">
-  import { CircleAlert, Eye, EyeOff, Info, KeyRound, LoaderCircle } from '@lucide/svelte';
+  import { CircleAlert, ExternalLink, Eye, EyeOff, Info, KeyRound, LoaderCircle } from '@lucide/svelte';
   import { tick } from 'svelte';
+  import * as api from '../lib/api';
+  import { store } from '../lib/store.svelte';
   import { FIELD_INFO, protocolMeta } from '../lib/protocols';
   import type { AuthPrompt } from '../lib/types';
   import Qr from './Qr.svelte';
@@ -59,6 +61,24 @@
     if (error && !working) tick().then(() => input?.focus());
   });
 
+  // a sign-in page to open (single sign-on): opened once by itself, and on
+  // the button again
+  const link = $derived(prompt.step === 'info' && /^https?:\/\//.test(prompt.data) ? prompt.data : '');
+  let openedLink = '';
+  $effect(() => {
+    if (link && link !== openedLink) {
+      openedLink = link;
+      openLink();
+    }
+  });
+
+  function openLink() {
+    api.openUrl(link).catch((e) => store.toastError(e));
+  }
+
+  // an optional password: left empty, the homeserver's single sign-on
+  const ssoChoice = $derived(prompt.field === 'password' && prompt.isOptional);
+
   function submit(e?: Event) {
     e?.preventDefault();
     if (working) return;
@@ -82,8 +102,14 @@
     <button class="btn ghost" onclick={onCancel}>{cancelLabel}</button>
   </div>
 {:else if prompt.step === 'info'}
-  <div class="banner info"><Info size={18} /><span>{prompt.message}{#if prompt.data}<br /><b class="code">{prompt.data}</b>{/if}</span></div>
-  <div class="waiting"><LoaderCircle size={14} class="spin" />Working…</div>
+  {#if link}
+    <div class="banner info"><Info size={18} /><span>{prompt.message}</span></div>
+    <button class="btn primary sso" onclick={openLink}><ExternalLink size={16} />Open the sign-in page</button>
+    <div class="waiting"><LoaderCircle size={14} class="spin" />Waiting for the sign-in in your browser…</div>
+  {:else}
+    <div class="banner info"><Info size={18} /><span>{prompt.message}{#if prompt.data}<br /><b class="code">{prompt.data}</b>{/if}</span></div>
+    <div class="waiting"><LoaderCircle size={14} class="spin" />Working…</div>
+  {/if}
   <div class="foot"><button class="btn ghost" onclick={onCancel}>{cancelLabel}</button></div>
 {:else if prompt.step === 'input'}
   <form onsubmit={submit} class="form">
@@ -154,7 +180,7 @@
     <div class="foot">
       <button type="button" class="btn ghost" onclick={onCancel}>{cancelLabel}</button>
       {#if prompt.isOptional && !value}
-        <button type="submit" class="btn" disabled={working}>{isRecovery ? 'Skip for now' : 'Skip'}</button>
+        <button type="submit" class="btn" class:primary={ssoChoice} disabled={working}>{isRecovery ? 'Skip for now' : ssoChoice ? 'Sign in with the browser' : 'Skip'}</button>
       {:else}
         <button type="submit" class="btn primary" class:working disabled={working || (!value.trim() && !prompt.isOptional)}>
           {#if working}<LoaderCircle size={16} class="spin" />Connecting…{:else}{isRecovery ? 'Unlock' : 'Continue'}{/if}
@@ -179,4 +205,5 @@
   .code { font-family: var(--mono); font-size: 20px; letter-spacing: 0.12em; display: inline-block; margin-top: 6px; }
   .foot { display: flex; justify-content: flex-end; gap: 8px; margin: 4px -20px -20px; padding: 14px 20px; border-top: 1px solid var(--border); }
   code { font-family: var(--mono); font-size: 12px; }
+  .sso { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
 </style>

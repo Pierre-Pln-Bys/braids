@@ -116,6 +116,40 @@ std::string MxChat::SanitizeProfileId(const std::string& p_UserId)
   return str;
 }
 
+// Single sign-on: the browser opens the homeserver's sign-in page (the URL
+// is shown as an info step for the user to open), which redirects back to a
+// local listener with a login token. Returns an error message, empty on
+// success. Gives up after 10 minutes or when the setup is cancelled.
+std::string MxChat::SsoLogin(const std::string& p_Homeserver)
+{
+  const std::string url = TakeCString(CMxSsoStart(m_ConnId, const_cast<char*>(p_Homeserver.c_str())));
+  if (url.empty())
+  {
+    return "Could not start the sign-in in the browser.";
+  }
+
+  AuthUtil::ShowInfo(m_AuthHandler, "Sign in with your organization in the browser, then come back here.", url);
+  std::string token;
+  for (int i = 0; (i < 600) && token.empty(); ++i)
+  {
+    if (AuthUtil::IsCancelled(m_AuthHandler)) break;
+
+    token = TakeCString(CMxSsoWait(m_ConnId, 1000));
+  }
+
+  CMxSsoStop(m_ConnId);
+  if (token.empty())
+  {
+    return AuthUtil::IsCancelled(m_AuthHandler) ? "Sign-in cancelled." : "Sign-in timed out.";
+  }
+
+  AuthUtil::ShowInfo(m_AuthHandler, "Logging in...");
+  const std::string error =
+    TakeCString(CMxSetupLoginToken(m_ConnId, const_cast<char*>(p_Homeserver.c_str()), const_cast<char*>(token.c_str())));
+  SecureClear(token);
+  return error;
+}
+
 bool MxChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_ProfileId)
 {
   m_IsSetup = true;
@@ -151,9 +185,25 @@ bool MxChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_Profi
     homeserver = discovered;
   }
 
+  // password, or single sign-on in the browser (e.g. SAML) when the
+  // homeserver offers it: chosen by leaving the password empty, or the only way
+  const std::string flows = TakeCString(CMxLoginFlows(const_cast<char*>(homeserver.c_str())));
+  const bool hasSso = (" " + flows + " ").find(" sso ") != std::string::npos;
+  const bool hasPassword = flows.empty() || ((" " + flows + " ").find(" password ") != std::string::npos);
   std::string password;
-  if (!AuthUtil::Input(m_AuthHandler, s_AuthFieldPassword, "Password", password, true /*p_IsSecret*/))
+  if (hasPassword &&
+      !AuthUtil::Input(m_AuthHandler, s_AuthFieldPassword,
+                       hasSso ? "Password (leave empty to sign in with your organization in the browser)" : "Password",
+                       password, true /*p_IsSecret*/, hasSso /*p_IsOptional*/))
   {
+    m_IsSetup = false;
+    return false;
+  }
+
+  const bool useSso = hasSso && password.empty();
+  if (!useSso && password.empty())
+  {
+    AuthUtil::ShowError(m_AuthHandler, "A password is needed for this homeserver.");
     m_IsSetup = false;
     return false;
   }
@@ -173,10 +223,19 @@ bool MxChat::SetupProfile(const std::string& p_ProfilesDir, std::string& p_Profi
   m_ConnId = CMxInit(const_cast<char*>(m_ProfileDir.c_str()));
   AddInstance(m_ConnId, this);
 
-  AuthUtil::ShowInfo(m_AuthHandler, "Logging in...");
-  const std::string loginError =
-    TakeCString(CMxSetupLogin(m_ConnId, const_cast<char*>(homeserver.c_str()),
-                              const_cast<char*>(userId.c_str()), const_cast<char*>(password.c_str())));
+  std::string loginError;
+  if (useSso)
+  {
+    loginError = SsoLogin(homeserver);
+  }
+  else
+  {
+    AuthUtil::ShowInfo(m_AuthHandler, "Logging in...");
+    loginError =
+      TakeCString(CMxSetupLogin(m_ConnId, const_cast<char*>(homeserver.c_str()),
+                                const_cast<char*>(userId.c_str()), const_cast<char*>(password.c_str())));
+  }
+
   SecureClear(password);
   if (!loginError.empty())
   {

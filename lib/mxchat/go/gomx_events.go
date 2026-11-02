@@ -73,6 +73,9 @@ var unsafeFileChars = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 // htmlParser converts Matrix HTML to nchat (markdown-ish) text, rendering
 // user pills as @displayname.
+// "* " starting a line: a list item from the HTML parser
+var listBullets = regexp.MustCompile(`(?m)^(\s*)\* `)
+
 var htmlParser = &format.HTMLParser{
 	TabsToSpaces:   4,
 	Newline:        "\n",
@@ -298,7 +301,8 @@ func (conn *MxConn) renderContent(ctx context.Context, roomID id.RoomID, sender 
 	if content.Format == event.FormatHTML && content.FormattedBody != "" {
 		parsed, _ := format.HTMLToMarkdownFull(htmlParser, content.FormattedBody)
 		if strings.TrimSpace(parsed) != "" {
-			text = parsed
+			// the parser writes list items as "* ": back to "- ", as typed
+			text = listBullets.ReplaceAllString(parsed, "$1- ")
 		}
 	}
 

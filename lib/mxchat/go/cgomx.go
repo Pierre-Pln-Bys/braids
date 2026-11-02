@@ -73,6 +73,31 @@ func CMxDiscoverHomeserver(userId *C.char) *C.char {
 	return C.CString(MxDiscoverHomeserver(C.GoString(userId)))
 }
 
+//export CMxLoginFlows
+func CMxLoginFlows(homeserver *C.char) *C.char {
+	return C.CString(MxLoginFlows(C.GoString(homeserver)))
+}
+
+//export CMxSsoStart
+func CMxSsoStart(connId int, homeserver *C.char) *C.char {
+	return C.CString(MxSsoStart(connId, C.GoString(homeserver)))
+}
+
+//export CMxSsoWait
+func CMxSsoWait(connId int, timeoutMs int) *C.char {
+	return C.CString(MxSsoWait(connId, timeoutMs))
+}
+
+//export CMxSsoStop
+func CMxSsoStop(connId int) {
+	MxSsoStop(connId)
+}
+
+//export CMxSetupLoginToken
+func CMxSetupLoginToken(connId int, homeserver *C.char, token *C.char) *C.char {
+	return C.CString(MxSetupLoginToken(connId, C.GoString(homeserver), C.GoString(token)))
+}
+
 //export CMxSetupLogin
 func CMxSetupLogin(connId int, homeserver *C.char, userId *C.char, password *C.char) *C.char {
 	return C.CString(MxSetupLogin(connId, C.GoString(homeserver), C.GoString(userId), C.GoString(password)))

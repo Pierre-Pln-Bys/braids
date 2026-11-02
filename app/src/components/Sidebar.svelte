@@ -9,7 +9,8 @@
   settings. 232 px, collapsible to 60 px; a drawer in the narrow layout.
 -->
 <script lang="ts">
-  import { Archive, CircleAlert, Images, Inbox, LoaderCircle, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
+  import { Archive, CircleAlert, Images, Inbox, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
+  import { tick } from 'svelte';
   import { hint } from '../lib/keybinds.svelte';
   import { settings } from '../lib/settings.svelte';
   import { store, type Filter } from '../lib/store.svelte';
@@ -36,6 +37,42 @@
   function toggle() {
     settings.sidebarCollapsed = !settings.sidebarCollapsed;
     settings.save();
+  }
+
+  // renaming an account in place (right-click → Rename…); the name is
+  // braids' own, as in Settings → Accounts
+  let renaming = $state('');
+  let renameValue = $state('');
+  let renameInput: HTMLInputElement | undefined = $state();
+
+  function startRename(accountId: string) {
+    renaming = accountId;
+    renameValue = store.accountName(accountId);
+    tick().then(() => renameInput?.select());
+  }
+
+  function finishRename(save: boolean) {
+    if (!renaming) return;
+    if (save) {
+      const name = renameValue.trim();
+      settings.account(renaming).name = name || undefined;
+      settings.save();
+    }
+    renaming = '';
+  }
+
+  function accountMenu(e: MouseEvent, accountId: string) {
+    e.preventDefault();
+    ui.openMenu(e, [
+      { label: 'Rename…', icon: Pencil, run: () => (collapsed ? openAccountSettings(accountId) : startRename(accountId)) },
+      { label: 'Account settings', icon: Settings, run: () => openAccountSettings(accountId) },
+    ]);
+  }
+
+  function openAccountSettings(accountId: string) {
+    ui.settingsSection = 'accounts';
+    ui.settingsAccount = accountId;
+    ui.settingsOpen = true;
   }
 
   function stateTitle(state: string, error: string): string {
@@ -79,10 +116,18 @@
           class:active={isActive(f)}
           class:dim={account.state === 'offline'}
           onclick={() => select(f)}
+          ondblclick={() => !collapsed && startRename(account.accountId)}
+          oncontextmenu={(e) => accountMenu(e, account.accountId)}
           title={`${store.accountName(account.accountId)} — ${stateTitle(account.state, account.error)}`}
         >
           <span class="ico"><ProtocolBadge protocol={account.protocol} color={store.accountColor(account.accountId)} size={18} /></span>
-          {#if !collapsed}<span class="label">{store.accountName(account.accountId)}</span>{/if}
+          {#if !collapsed && renaming === account.accountId}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input class="rename" bind:this={renameInput} bind:value={renameValue} aria-label="Account name" maxlength="40"
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishRename(true); else if (e.key === 'Escape') finishRename(false); }}
+              onblur={() => finishRename(true)} />
+          {:else if !collapsed}<span class="label">{store.accountName(account.accountId)}</span>{/if}
           {#if !collapsed}
             {#if account.state === 'connecting'}
               <span class="state" aria-label="Connecting"><LoaderCircle size={14} class="spin" /></span>
@@ -125,6 +170,11 @@
       <Plus size={18} strokeWidth={1.75} />
       {#if !collapsed}Add account{/if}
     </button>
+    {#if !collapsed && !drawer}
+      <button class="icon-btn" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={toggle}>
+        <PanelLeftClose size={18} strokeWidth={1.75} />
+      </button>
+    {/if}
     {#if !collapsed}
       <button class="icon-btn" aria-label="Settings" title={`Settings${hint('settings')}`} onclick={() => { ui.drawerOpen = false; ui.settingsSection = 'general'; ui.settingsOpen = true; }}>
         <Settings size={18} strokeWidth={1.75} />
@@ -132,6 +182,9 @@
     {/if}
   </div>
   {#if collapsed}
+    <button class="item" title="Expand sidebar" aria-label="Expand sidebar" onclick={toggle}>
+      <span class="ico"><PanelLeftOpen size={18} strokeWidth={1.75} /></span>
+    </button>
     <button class="item" title="Settings" onclick={() => { ui.settingsSection = 'general'; ui.settingsOpen = true; }}>
       <span class="ico"><Settings size={18} strokeWidth={1.75} /></span>
     </button>
@@ -160,6 +213,7 @@
   .item.dim { color: var(--text-muted); }
   .item.dim .ico { opacity: 0.55; }
   .ico { color: var(--text-2); display: flex; }
+  .rename { flex: 1; min-width: 0; height: 24px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; outline: none; }
   .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .state { color: var(--text-muted); display: flex; }
   .state.warn { color: var(--warning); }

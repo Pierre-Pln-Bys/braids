@@ -64,6 +64,8 @@ modules:
       - rm -f /app/share/icons/hicolor/128x128/apps/braids.png /app/share/icons/hicolor/256x256/apps/braids.png
       - install -Dm644 tree/share/icons/hicolor/128x128/apps/braids.png /app/share/icons/hicolor/128x128/apps/org.braids.app.png
       - install -Dm644 tree/share/icons/hicolor/256x256/apps/braids.png /app/share/icons/hicolor/256x256/apps/org.braids.app.png
+      - install -Dm644 tree/share/icons/hicolor/scalable/apps/braids.svg /app/share/icons/hicolor/scalable/apps/org.braids.app.svg
+      - rm -f /app/share/icons/hicolor/scalable/apps/braids.svg
       - install -Dm644 org.braids.app.desktop /app/share/applications/org.braids.app.desktop
       - install -Dm644 org.braids.app.metainfo.xml /app/share/metainfo/org.braids.app.metainfo.xml
     sources:

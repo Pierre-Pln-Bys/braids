@@ -365,6 +365,24 @@ func MxDiscoverHomeserver(userId string) string {
 // MxSetupLogin performs password login and stores session and pickle key.
 // Returns an empty string on success, otherwise an error message.
 func MxSetupLogin(connId int, homeserver string, userId string, password string) string {
+	return setupLogin(connId, homeserver, &mautrix.ReqLogin{
+		Type:       mautrix.AuthTypePassword,
+		Identifier: mautrix.UserIdentifier{Type: mautrix.IdentifierTypeUser, User: userId},
+		Password:   password,
+	})
+}
+
+// MxSetupLoginToken logs in with a login token from single sign-on
+// (m.login.token, see gomx_sso.go) and stores session and pickle key.
+// Returns an empty string on success, otherwise an error message.
+func MxSetupLoginToken(connId int, homeserver string, token string) string {
+	return setupLogin(connId, homeserver, &mautrix.ReqLogin{
+		Type:  mautrix.AuthTypeToken,
+		Token: token,
+	})
+}
+
+func setupLogin(connId int, homeserver string, req *mautrix.ReqLogin) string {
 	conn := GetConn(connId)
 	if conn == nil {
 		return "invalid connection"
@@ -384,13 +402,9 @@ func MxSetupLogin(connId int, homeserver string, userId string, password string)
 	if hostname != "" {
 		deviceName = "braids (" + hostname + ")"
 	}
+	req.InitialDeviceDisplayName = deviceName
 
-	resp, err := client.Login(ctx, &mautrix.ReqLogin{
-		Type:                     mautrix.AuthTypePassword,
-		Identifier:               mautrix.UserIdentifier{Type: mautrix.IdentifierTypeUser, User: userId},
-		Password:                 password,
-		InitialDeviceDisplayName: deviceName,
-	})
+	resp, err := client.Login(ctx, req)
 	if err != nil {
 		var httpErr mautrix.HTTPError
 		if errors.As(err, &httpErr) && httpErr.RespError != nil {

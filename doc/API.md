@@ -209,7 +209,7 @@ The flow ends with `account.added` or `account.setupFailed`.
 | Telegram | `phone`, QR code (or code via `USE_PAIRING_CODE`), `code`, `password` (2FA), `firstName`/`lastName` (new accounts) |
 | WhatsApp | `phone`, QR code or pairing code (`USE_PAIRING_CODE`), `passkeyResponse` and `confirm` for passkey-locked accounts |
 | Signal | `phone`, QR code |
-| Matrix | `userId`, `homeserver` (default discovered), `password`, `recoveryKey` (optional; `never` stops asking) |
+| Matrix | `userId`, `homeserver` (default discovered), `password`, `recoveryKey` (optional; `never` stops asking). With single sign-on (SAML, OpenID Connect, ... at the homeserver) `password` is optional (empty: sign in in the browser) or not asked; an `info` step then has the sign-in URL in `data` (clients open it), and braidsd waits for the browser to come back |
 
 After setup, the same events with `accountId` instead of `setupId` are used
 for prompts at runtime, e.g. Telegram re-authentication or the Matrix

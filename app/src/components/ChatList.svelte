@@ -284,7 +284,7 @@
   .hit-text mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; font-weight: 600; }
   .found-status { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: var(--text-muted); margin: 8px 12px; }
   .more { display: block; margin: 6px auto 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
-  .chatlist { width: 330px; flex-shrink: 0; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+  .chatlist { width: var(--chatlist-w, 330px); flex-shrink: 0; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
   .head { padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 10px; }
   .title-row { display: flex; align-items: center; gap: 6px; }
   h2 { margin: 0; font-size: 18px; font-weight: 650; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

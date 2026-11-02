@@ -35,9 +35,20 @@ ICONS="${DATA}/icons/hicolor"
 say() { printf '%s\n' "$*"; }
 die() { printf 'braids install: %s\n' "$*" >&2; exit 1; }
 
+# GNOME and others read icons through the icon cache when the folder has one
+# (often created by other apps): new icons only show after it is rebuilt
+refresh_desktop() {
+  if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "${ICONS}" ]; then
+    gtk-update-icon-cache -q -f -t "${ICONS}" >/dev/null 2>&1 || true
+  fi
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "${APPS}" >/dev/null 2>&1 || true
+}
+
 uninstall() {
   rm -rf "${DEST}"
-  rm -f "${BIN}/braids" "${APPS}/braids.desktop" "${ICONS}/128x128/apps/braids.png" "${ICONS}/256x256/apps/braids.png"
+  rm -f "${BIN}/braids" "${APPS}/braids.desktop" "${ICONS}/128x128/apps/braids.png" "${ICONS}/256x256/apps/braids.png" \
+    "${ICONS}/scalable/apps/braids.svg"
+  refresh_desktop
   say "braids removed."
 }
 
@@ -81,7 +92,7 @@ tar -C "${TMP}" -xzf "${TMP}/braids.tar.gz" || die "could not unpack the downloa
 
 # replace the previous version; a running braidsd is restarted by the app
 # when it notices the newer binary
-mkdir -p "${DATA}" "${BIN}" "${APPS}" "${ICONS}/128x128/apps" "${ICONS}/256x256/apps"
+mkdir -p "${DATA}" "${BIN}" "${APPS}" "${ICONS}/128x128/apps" "${ICONS}/256x256/apps" "${ICONS}/scalable/apps"
 rm -rf "${DEST}.new"
 mv "${TMP}/braids" "${DEST}.new"
 rm -rf "${DEST}"
@@ -91,7 +102,8 @@ ln -sf "${DEST}/bin/braids" "${BIN}/braids"
 sed "s|^Exec=.*|Exec=${DEST}/bin/braids|" "${DEST}/share/applications/braids.desktop" > "${APPS}/braids.desktop"
 cp "${DEST}/share/icons/hicolor/128x128/apps/braids.png" "${ICONS}/128x128/apps/braids.png"
 cp "${DEST}/share/icons/hicolor/256x256/apps/braids.png" "${ICONS}/256x256/apps/braids.png"
-command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "${APPS}" >/dev/null 2>&1 || true
+[ -f "${DEST}/share/icons/hicolor/scalable/apps/braids.svg" ] && cp "${DEST}/share/icons/hicolor/scalable/apps/braids.svg" "${ICONS}/scalable/apps/braids.svg"
+refresh_desktop
 
 say "braids $(cat "${DEST}/share/braids-version" 2>/dev/null || true) installed to ${DEST}"
 

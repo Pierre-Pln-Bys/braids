@@ -73,8 +73,10 @@ echo "== app"
 install -m 0755 app/src-tauri/target/release/braids "${TREE}/bin/braids"
 
 echo "== desktop integration files"
-install -d "${TREE}/share/applications" "${TREE}/share/icons/hicolor/128x128/apps" "${TREE}/share/icons/hicolor/256x256/apps"
+install -d "${TREE}/share/applications" "${TREE}/share/icons/hicolor/128x128/apps" "${TREE}/share/icons/hicolor/256x256/apps" \
+  "${TREE}/share/icons/hicolor/scalable/apps"
 install -m 0644 app/src-tauri/icons/128x128.png "${TREE}/share/icons/hicolor/128x128/apps/braids.png"
+install -m 0644 doc/design/icons/braids-linux-512.svg "${TREE}/share/icons/hicolor/scalable/apps/braids.svg"
 install -m 0644 app/src-tauri/icons/128x128@2x.png "${TREE}/share/icons/hicolor/256x256/apps/braids.png"
 sed "s|@EXEC@|braids|" utils/dist/braids.desktop.in > "${TREE}/share/applications/braids.desktop"
 install -m 0644 utils/dist/install.sh "${TREE}/share/braids-install.sh"
@@ -95,13 +97,15 @@ tar -C "${STAGE}" --owner=0 --group=0 -czf "${TARBALL}" braids
 echo "== deb"
 DEBROOT="${STAGE}/deb"
 install -d "${DEBROOT}/opt" "${DEBROOT}/usr/bin" "${DEBROOT}/usr/share/applications" \
-  "${DEBROOT}/usr/share/icons/hicolor/128x128/apps" "${DEBROOT}/usr/share/icons/hicolor/256x256/apps" "${DEBROOT}/DEBIAN"
+  "${DEBROOT}/usr/share/icons/hicolor/128x128/apps" "${DEBROOT}/usr/share/icons/hicolor/256x256/apps" \
+  "${DEBROOT}/usr/share/icons/hicolor/scalable/apps" "${DEBROOT}/DEBIAN"
 cp -a "${TREE}" "${DEBROOT}/opt/braids"
 rm "${DEBROOT}/opt/braids/share/braids-install.sh"
 ln -s /opt/braids/bin/braids "${DEBROOT}/usr/bin/braids"
 sed "s|@EXEC@|/opt/braids/bin/braids|" utils/dist/braids.desktop.in > "${DEBROOT}/usr/share/applications/braids.desktop"
 cp "${TREE}/share/icons/hicolor/128x128/apps/braids.png" "${DEBROOT}/usr/share/icons/hicolor/128x128/apps/"
 cp "${TREE}/share/icons/hicolor/256x256/apps/braids.png" "${DEBROOT}/usr/share/icons/hicolor/256x256/apps/"
+cp "${TREE}/share/icons/hicolor/scalable/apps/braids.svg" "${DEBROOT}/usr/share/icons/hicolor/scalable/apps/"
 cat > "${DEBROOT}/DEBIAN/control" <<EOF
 Package: braids
 Version: ${VERSION}

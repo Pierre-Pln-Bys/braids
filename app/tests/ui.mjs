@@ -685,6 +685,31 @@ try {
   check(true, 'a search result opens the chat at the message');
   await page.locator('input[aria-label="Search chats"]').fill('');
 
+  // rename an account in the sidebar (double-click)
+  await page.locator('.sidebar .item .label').filter({ hasText: /Dummy/ }).first().dblclick();
+  await page.fill('input[aria-label="Account name"]', 'OCS');
+  await page.keyboard.press('Enter');
+  await page.locator('.sidebar .item .label', { hasText: 'OCS' }).waitFor();
+  check(true, 'account renamed in the sidebar');
+
+  // sidebar collapse and expand buttons
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await page.locator('.sidebar.collapsed').waitFor();
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+  await page.locator('.sidebar:not(.collapsed)').waitFor();
+  check(true, 'sidebar collapses and expands with its buttons');
+
+  // drag the divider to widen the chat list
+  const listW = async () => (await page.locator('.chatlist').boundingBox()).width;
+  const widthBefore = await listW();
+  const sp = await page.locator('.splitter').boundingBox();
+  await page.mouse.move(sp.x + sp.width / 2, sp.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(sp.x + sp.width / 2 + 100, sp.y + 200, { steps: 5 });
+  await page.mouse.up();
+  check(Math.abs((await listW()) - widthBefore - 100) <= 2, 'chat list resized at the divider');
+  await page.locator('.splitter').dblclick();
+
   // new group
   await page.getByRole('button', { name: 'New chat' }).click();
   await page.getByRole('tab', { name: 'New group' }).click();
