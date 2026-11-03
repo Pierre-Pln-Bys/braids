@@ -90,6 +90,10 @@ try {
   check(await dwight.locator('.circle img').count() === 0 && (await dwight.locator('.circle').textContent()) === 'D', 'initials without a picture');
   await page.fill('input[aria-label="Search chats"]', 'offi');
   check((await page.getByRole('option').count()) === 1, 'search filters chats');
+  await page.locator('input[aria-label="Search chats"]').press('Enter');
+  await page.locator('.conv header', { hasText: 'The Office' }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(await page.locator('textarea[aria-label=Message]').inputValue() === '', 'Enter in the search opens the chat, no new line in the composer');
   await page.fill('input[aria-label="Search chats"]', '');
 
   // conversation
@@ -684,6 +688,10 @@ try {
   await page.locator('.msg.highlight', { hasText: 'copy me please' }).waitFor();
   check(true, 'a search result opens the chat at the message');
   await page.locator('input[aria-label="Search chats"]').fill('');
+  await page.fill('input[aria-label="Search chats"]', 'no such chat');
+  await page.keyboard.press('Control+N');
+  check(await page.inputValue('input[aria-label="Search chats"]') === '' && (await page.getByRole('option').count()) >= 2,
+    'next unread (Ctrl+N) clears the search');
 
   // favorites pinned at the top instead of their own folder
   await page.keyboard.press('Control+,');

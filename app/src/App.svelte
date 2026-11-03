@@ -136,6 +136,8 @@
         ui.chatSearchOpen = true;
         return true;
       case 'nextUnread':
+        // through all chats, not only the ones matching a search
+        store.search = '';
         nextUnread();
         return true;
       case 'editLast':

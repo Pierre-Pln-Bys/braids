@@ -121,6 +121,8 @@
     } else if (e.key === 'ArrowUp' || e.key === 'k') {
       cursor = Math.max(0, cursor - 1);
     } else if (e.key === 'Enter' && cursor >= 0) {
+      // the composer gets the focus: the Enter must not reach it
+      e.preventDefault();
       open(chats[cursor]);
       return;
     } else {
@@ -139,6 +141,7 @@
       cursor = 0;
       listEl?.focus();
     } else if (e.key === 'Enter' && chats.length) {
+      e.preventDefault(); // not a new line in the composer that gets the focus
       open(chats[0]);
     }
   }
@@ -202,7 +205,7 @@
         aria-selected={selected}
         tabindex="-1"
         onclick={() => open(c)}
-        onkeydown={(e) => e.key === 'Enter' && open(c)}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); open(c); } }}
         oncontextmenu={(e) => { e.preventDefault(); ui.openMenu(e, chatMenu(c)); }}
       >
         <Avatar name={store.chatName(c)} id={c.id} accountId={c.accountId} group={c.isGroup} ring={selected ? 'var(--selected)' : 'var(--bg-1)'}

@@ -6,6 +6,11 @@ release workflow publishes the section of a version as its release notes.
 
 ## [Unreleased]
 
+### Fixed
+- Opening a chat with Enter from the search no longer puts an empty line
+  in the composer.
+- Next unread chat (Ctrl+N) clears the search and goes through all chats.
+
 ## [0.2.0] - 2026-11-02
 
 ### New
