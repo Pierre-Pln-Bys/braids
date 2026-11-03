@@ -272,6 +272,12 @@
     if (ui.chatSearchOpen) tick().then(() => searchInput?.focus());
   });
 
+  // closing the search goes back to writing
+  function closeSearch() {
+    ui.chatSearchOpen = false;
+    ui.focusComposer++;
+  }
+
   // "Show in chat" from elsewhere (shared media)
   $effect(() => {
     const req = ui.jumpRequest;
@@ -333,7 +339,7 @@
           </span>
         </span>
       </button>
-      <button class="icon-btn" class:active={ui.chatSearchOpen} aria-label="Search in chat" title={`Search in chat${hint('searchInChat')}`} onclick={() => (ui.chatSearchOpen = !ui.chatSearchOpen)}>
+      <button class="icon-btn" class:active={ui.chatSearchOpen} aria-label="Search in chat" title={`Search in chat${hint('searchInChat')}`} onclick={() => (ui.chatSearchOpen ? closeSearch() : (ui.chatSearchOpen = true))}>
         <Search size={19} strokeWidth={1.75} />
       </button>
       <button class="icon-btn" class:active={ui.infoOpen} aria-label="Toggle info panel" title={`Chat info${hint('toggleInfo')}`} onclick={() => (ui.infoOpen = !ui.infoOpen)}>
@@ -380,11 +386,11 @@
           placeholder="Search in this chat"
           aria-label="Search in this chat"
           oninput={() => { searchFrom = ''; searchStatus = ''; }}
-          onkeydown={(e) => { if (e.key === 'Enter') findNext(); if (e.key === 'Escape') ui.chatSearchOpen = false; }}
+          onkeydown={(e) => { if (e.key === 'Enter') findNext(); if (e.key === 'Escape') { e.preventDefault(); closeSearch(); } }}
         />
         {#if searchStatus}<span class="search-status">{searchStatus}</span>{/if}
         <button class="icon-btn sm" title="Find older (Enter)" aria-label="Find older" onclick={findNext}><ChevronUp size={17} /></button>
-        <button class="icon-btn sm" aria-label="Close search" onclick={() => (ui.chatSearchOpen = false)}><X size={17} /></button>
+        <button class="icon-btn sm" aria-label="Close search" onclick={closeSearch}><X size={17} /></button>
       </div>
     {/if}
 

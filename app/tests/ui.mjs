@@ -101,6 +101,16 @@ try {
   await page.locator('[data-msg-id]').first().waitFor();
   check((await page.locator('.msg .sender').count()) > 0, 'group shows sender names');
   check((await page.locator('.system-line').first().textContent()) === 'Andy joined', 'group event shown as a system line');
+  // search in the chat (Ctrl+F); closing it goes back to the composer
+  await page.keyboard.press('Control+f');
+  await page.locator('input[aria-label="Search in this chat"]').fill('headhunter');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(await page.locator('input[aria-label="Search in this chat"]').count() === 0, 'closing the chat search focuses the composer');
+  await page.keyboard.press('Control+f');
+  await page.getByRole('button', { name: 'Close search' }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(true, 'the close button focuses the composer too');
   await page.keyboard.press('Control+i');
   await page.locator('.info .member').first().waitFor();
   check(await page.locator('.info .member').count() === 5, 'member list shows 5');
