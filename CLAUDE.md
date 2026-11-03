@@ -74,8 +74,11 @@ into a tarball, a .deb and (`--appimage`) an AppImage (`utils/dist/AppRun`
 runs braidsd from a cache copy, it outlives the mount);
 `utils/dist/flatpak/` wraps the tarball into a Flatpak (GNOME runtime);
 `utils/dist/install.sh` installs the tarball per user; tag `v*` runs
-`.github/workflows/release.yml` (both arches, all formats). Website: `site/` (GitHub Pages,
-`.github/workflows/pages.yml`).
+`.github/workflows/release.yml` (both arches, all formats; release notes are
+the version's section of `CHANGELOG.md`: add user-facing changes under
+`[Unreleased]` and rename it to the version before tagging). Website: `site/` (GitHub Pages,
+`.github/workflows/pages.yml`); screenshots and the README demo GIF
+(`site/img/demo.gif`) come from `app/scripts/site-screenshots.mjs`.
 
 ## Conventions
 
