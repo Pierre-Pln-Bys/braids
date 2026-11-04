@@ -27,8 +27,9 @@ export type Action =
   | 'searchInChat'
   | 'editLast'
   | 'toggleInfo'
-  | 'settings';
-
+  | 'settings'
+  | 'shortcuts'; 
+  
 export type ActionGroup = 'goto' | 'action';
 
 export const GROUPS: { id: ActionGroup; label: string }[] = [
@@ -51,6 +52,7 @@ export const ACTIONS: { id: Action; group: ActionGroup; label: string; defaults:
   { id: 'editLast', group: 'action', label: 'Edit last own message', defaults: ['Mod+E'] },
   { id: 'toggleInfo', group: 'action', label: 'Toggle info panel', defaults: ['Mod+I'] },
   { id: 'settings', group: 'action', label: 'Settings', defaults: ['Mod+,'] },
+  { id: 'shortcuts', group: 'action', label: 'Keyboard shortcuts', defaults: ['Mod+/'] },
 ];
 
 // protocol of the account shortcuts (several accounts of one protocol: cycled)
