@@ -123,3 +123,14 @@ Scheduled-later features are in `doc/BACKLOG.md`.
   (`src-tauri/src/linkpreview.rs`, no local/LAN addresses). Adding a request
   or notify type to `protocol.h` shifts the enum: rebuild all protocol
   libraries (`make`, not only `make braidsd`).
+- Outbox: `messages.send` queues in `ChatModel` (`OutboxEntry`, ids
+  `braids-out-…`, `<profile>/braids-outbox.json`), emitted as pending
+  messages; the request's `chatMessage.id` carries the local id back in
+  `SendMessageNotify`; the echo is matched by text/file name
+  (`MatchOutboxEcho`). Dummy: `/offline N`, `/fail` for tests.
+- Reconnect: `ReconnectRequest` / `accounts.reconnect`, called by the app on
+  wake (timer gap) and when the network returns.
+- Media: WebKitGTK does not play media from the `asset:` protocol; videos and
+  audio go through blob URLs (`app/src/lib/media.ts`, `use:mediaSrc`).
+- Chat list keyboard: one highlight (`ui.listCursor`, `ui.list`), Alt+J/K
+  move it, Enter opens.
