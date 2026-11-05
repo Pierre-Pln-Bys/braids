@@ -1876,7 +1876,8 @@ void ChatModel::OnSendResult(const std::string& p_AccountId, const std::string& 
 }
 
 // An own message from the messenger replaces the outbox message it is: the
-// one with the same text (or file name), else the oldest confirmed one.
+// one with the same text (or file name), else the oldest one on its way
+// (the messenger may change the text, e.g. formatting).
 void ChatModel::MatchOutboxEcho(const std::string& p_AccountId, const std::string& p_ChatId,
                                 const ChatMessage& p_ChatMessage)
 {
@@ -1888,7 +1889,7 @@ void ChatModel::MatchOutboxEcho(const std::string& p_AccountId, const std::strin
   }
 
   const OutboxEntry* match = nullptr;
-  const OutboxEntry* oldestSent = nullptr;
+  const OutboxEntry* oldest = nullptr;
   for (const OutboxEntry& entry : account.outbox)
   {
     if ((entry.chatId != p_ChatId) || ((entry.state != "sending") && (entry.state != "sent"))) continue;
@@ -1901,15 +1902,15 @@ void ChatModel::MatchOutboxEcho(const std::string& p_AccountId, const std::strin
       break;
     }
 
-    if ((entry.state == "sent") && (oldestSent == nullptr))
+    if (oldest == nullptr)
     {
-      oldestSent = &entry;
+      oldest = &entry;
     }
   }
 
   if (match == nullptr)
   {
-    match = oldestSent;
+    match = oldest;
   }
 
   if (match != nullptr)

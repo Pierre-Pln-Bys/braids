@@ -187,11 +187,13 @@ def main():
         check(True, "read receipt sent")
 
         # reply from braidsd
-        d.call("messages.send", {"accountId": account_id, "chatId": room, "text": "hi _bob_", "quotedId": sent})
+        pending = d.call("messages.send", {"accountId": account_id, "chatId": room, "text": "hi _bob_", "quotedId": sent})
         reply = bob_peer.wait("message", lambda m: m["sender"] == alice_id)
         check(reply["encrypted"], "reply sent encrypted")
         check(reply.get("relates", {}).get("m.in_reply_to", {}).get("event_id") == sent, "reply relates to quote")
         own = d.wait_event("message.added", lambda p: p["id"] == reply["id"], timeout=60)
+        d.wait_event("message.removed", lambda p: p["msgId"] == pending["msgId"], timeout=30)
+        check(True, "the pending message gives way to the Matrix echo")
         check(own["isOutgoing"] and own["quoted"]["id"] == sent, "own reply echoed with quote")
 
         # edit from braidsd
