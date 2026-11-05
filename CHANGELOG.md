@@ -11,6 +11,11 @@ release workflow publishes the section of a version as its release notes.
   `--branch <name>`) installs them without a release; see the website's
   download section.
 
+### Fixed
+- The app icon reads at small sizes (GNOME top bar, browser tab): a bigger
+  braid with thicker strands on a warm grey circle that stays visible on
+  dark panels.
+
 ## [0.3.0] - 2026-11-05
 
 ### New
