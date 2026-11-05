@@ -669,8 +669,26 @@ try {
   await page.keyboard.press('Control+e');
   check(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search chats'), 'changed shortcut works');
   await page.keyboard.press('Escape');
-  await page.keyboard.press('Control+,');
-  await page.getByRole('button', { name: 'Keyboard' }).click();
+
+  // shortcuts overview: opens with Ctrl+/, shows your own bindings, closes with Esc
+  await page.keyboard.press('Control+/');
+  const overview = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await overview.waitFor();
+  check(await overview.getByRole('heading', { name: 'Go to' }).count() === 1 && await overview.getByRole('heading', { name: 'Actions' }).count() === 1,
+    'Ctrl+/ opens the shortcuts overview with the groups');
+  check((await overview.locator('[data-shortcut=searchChats] kbd').allTextContents()).includes('E'),
+    'overview shows the changed shortcut, not only the default');
+  await page.keyboard.press('Escape');
+  await overview.waitFor({ state: 'detached' });
+  check(true, 'Esc closes the shortcuts overview');
+
+  // "Change shortcuts…" opens Settings -> Keyboard  where new shortcut is listed like others
+  await page.keyboard.press('Control+/');
+  await overview.waitFor();
+  await overview.getByRole('button', { name: 'Change shortcuts…' }).click();
+  await overview.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Reset all' }).waitFor();
+  check(await page.locator('[data-action=shortcuts] .combo').count() === 1, '"Change shortcuts…" opens Settings → Keyboard, with the overview shortcut listed');
   await page.getByRole('button', { name: 'Reset all' }).click();
   check(await page.locator('[data-action=editLast] .combo').count() === 1 &&
     await page.locator('[data-action=searchChats] .combo').count() === 1, 'reset all restores the defaults');
