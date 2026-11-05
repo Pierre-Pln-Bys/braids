@@ -30,8 +30,8 @@ export type Action =
   | 'editLast'
   | 'toggleInfo'
   | 'settings'
-  | 'shortcuts'; 
-  
+  | 'shortcuts';
+
 export type ActionGroup = 'goto' | 'action';
 
 export const GROUPS: { id: ActionGroup; label: string }[] = [

@@ -6,7 +6,15 @@ release workflow publishes the section of a version as its release notes.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-05
+
 ### New
+- Keyboard shortcuts overview: Ctrl+/ lists all shortcuts with your own
+  bindings, and links to Settings → Keyboard to change them. Contributed by
+  @Pierre-Pln-Bys (#14, #8).
+- Profile pictures open in full size: the viewer shows the small picture at
+  once and switches to the full-resolution one when it has been fetched
+  (Telegram, WhatsApp and Matrix; Signal has one size).
 - Test builds of pull requests: `install.sh --pr <number>` (or
   `--branch <name>`) installs them without a release; see the website's
   download section.

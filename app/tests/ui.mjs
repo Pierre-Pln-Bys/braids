@@ -118,6 +118,8 @@ try {
   await page.getByRole('menuitem', { name: 'View profile picture' }).click();
   await page.locator('.lightbox img').waitFor();
   check(true, 'group sender: profile picture in the viewer');
+  await page.waitForFunction(() => decodeURIComponent(document.querySelector('.lightbox img')?.getAttribute('src') ?? '').includes('Michael_0-full'));
+  check(true, 'the viewer switches to the full-size picture');
   await page.keyboard.press('Escape');
   await page.locator('.lightbox').waitFor({ state: 'detached' });
   await michaelMsg.locator('.sender').click();

@@ -27,6 +27,7 @@ export interface LightboxItem {
   path: string;
   name: string;
   video?: boolean; // played in the viewer instead of shown
+  fullAvatar?: string; // profile picture (chat key): shown in full size once fetched
 }
 
 class Ui {

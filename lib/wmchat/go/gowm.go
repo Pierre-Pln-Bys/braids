@@ -896,7 +896,7 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 		if evt.Remove {
 			forgetAvatar(handler.connId, evt.JID.String())
 		}
-		WmGetAvatar(handler.connId, evt.JID.String())
+		WmGetAvatar(handler.connId, evt.JID.String(), false)
 
 	case *events.Pin:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))

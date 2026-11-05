@@ -990,10 +990,26 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
     case NewAvatarNotifyType:
       {
         std::shared_ptr<NewAvatarNotify> notify = std::static_pointer_cast<NewAvatarNotify>(p_ServiceMessage);
+        if (notify->full)
+        {
+          // a protocol without a bigger picture answers with the small one
+          std::string path = notify->filePath;
+          if (path.empty())
+          {
+            auto ait = account.avatars.find(notify->id);
+            if (ait != account.avatars.end()) path = ait->second;
+          }
+
+          account.fullAvatars[notify->id] = path;
+          Emit("avatar.full", json{ { "accountId", accountId }, { "id", notify->id }, { "path", path } });
+          break;
+        }
+
         auto ait = account.avatars.find(notify->id);
         if ((ait != account.avatars.end()) && (ait->second == notify->filePath)) break;
 
         account.avatars[notify->id] = notify->filePath;
+        account.fullAvatars.erase(notify->id); // the picture changed
         Emit("avatar.updated", json{ { "accountId", accountId }, { "id", notify->id }, { "path", notify->filePath } });
       }
       break;
@@ -2301,6 +2317,35 @@ json ChatModel::GetAvatars(const std::string& p_AccountId, const std::vector<std
   }
 
   return json{ { "accountId", p_AccountId }, { "avatars", avatars } };
+}
+
+// Full-size picture of a user / chat for the picture viewer: the path when
+// already fetched, else requested from the protocol; it arrives as an
+// avatar.full event (the small avatar as path when the protocol has nothing
+// bigger, "" when there is no picture).
+json ChatModel::GetFullAvatar(const std::string& p_AccountId, const std::string& p_Id)
+{
+  AccountState& account = GetAccountOrThrow(p_AccountId);
+  json result = json{ { "accountId", p_AccountId }, { "id", p_Id } };
+  auto fit = account.fullAvatars.find(p_Id);
+  if (fit != account.fullAvatars.end())
+  {
+    result["path"] = fit->second;
+  }
+  else if (HasFeature(p_AccountId, FeatureAvatars))
+  {
+    std::shared_ptr<GetAvatarRequest> getAvatarRequest = std::make_shared<GetAvatarRequest>();
+    getAvatarRequest->id = p_Id;
+    getAvatarRequest->full = true;
+    SendProtocolRequest(p_AccountId, getAvatarRequest);
+  }
+  else
+  {
+    auto ait = account.avatars.find(p_Id);
+    result["path"] = (ait != account.avatars.end()) ? ait->second : "";
+  }
+
+  return result;
 }
 
 // Known descriptions (group description, user bio) of the given users /

@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.10.0`. The API is JSON-RPC 2.0
+Status: draft, API version `0.11.0`. The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -141,6 +141,7 @@ Methods
 | `chats.delete` | `accountId`, `chatId` | `{}`, then `chat.removed` (Matrix: leave + forget) |
 | `contacts.list` | `accountId` | `[Contact]` |
 | `avatars.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, avatars: {id: path}}` with the known ones (`""`: no picture); the others are fetched once per session and arrive as `avatar.updated` |
+| `avatars.getFull` | `accountId`, `id` | `{accountId, id, path?}`: the full-size picture (picture viewer) when already fetched; else it is fetched and arrives as `avatar.full` |
 | `descriptions.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, descriptions: {id: text}}` (group description or user bio; for a one-to-one chat the other user's) with the known ones (`""`: none); the others are fetched once per session and arrive as `description.updated` |
 | `media.list` | `kind` (`media`: images and videos, stickers not included, `files`, `links`, `pinned`: pinned messages), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`? (ms, from `nextBefore`), `limit`? (60, max 200) | `{items: [Message] newest first, nextBefore}` (`nextBefore` 0: no more); from the history cache and the loaded messages, `files.download` works for these too |
 | `messages.search` | `text` (case-insensitive for ASCII letters), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`?, `limit`? (40, max 200) | `{items: [Message] newest first, nextBefore}` like `media.list`; group events are left out |
@@ -183,6 +184,7 @@ Events
 | `chat.moved` | `{accountId, chatId, newChatId}` (e.g. Telegram group upgraded) |
 | `contacts.updated` | `{accountId, fullSync, contacts: [Contact]}` |
 | `avatar.updated` | `{accountId, id, path}` (local image file, `""` if none; also sent when a picture changes) |
+| `avatar.full` | `{accountId, id, path}`: answers `avatars.getFull` (the small picture when the protocol has no bigger one, `""` if none) |
 | `description.updated` | `{accountId, id, description}` (plain text, `""` if none; also sent when it changes) |
 | `members.updated` | `{accountId, chatId, members: [Contact]}` |
 | `message.added` | `Message` |

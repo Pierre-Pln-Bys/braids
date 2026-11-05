@@ -683,14 +683,17 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
 
         std::shared_ptr<NewAvatarNotify> newAvatarNotify = std::make_shared<NewAvatarNotify>(m_ProfileId);
         newAvatarNotify->id = getAvatarRequest->id;
+        newAvatarNotify->full = getAvatarRequest->full;
         auto pit = s_Pictures.find(getAvatarRequest->id);
         if ((pit != s_Pictures.end()) && !m_ProfileDir.empty())
         {
           const std::string dir = m_ProfileDir + "/avatars";
           mkdir(dir.c_str(), 0700);
-          const std::string path = dir + "/" + getAvatarRequest->id + ".svg";
+          // full: the same picture as a separate, larger file (tests tell them apart)
+          const std::string path = dir + "/" + getAvatarRequest->id + (getAvatarRequest->full ? "-full" : "") + ".svg";
+          const std::string size = getAvatarRequest->full ? "width=\"640\" height=\"640\" " : "";
           const std::string svg =
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" " + size + "viewBox=\"0 0 64 64\">"
             "<rect width=\"64\" height=\"64\" fill=\"" + pit->second.first + "\"/>"
             "<circle cx=\"32\" cy=\"26\" r=\"12\" fill=\"" + pit->second.second + "\"/>"
             "<path d=\"M10 64c2-14 11-22 22-22s20 8 22 22z\" fill=\"" + pit->second.second + "\"/></svg>";

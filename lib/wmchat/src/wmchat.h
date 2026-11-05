@@ -111,7 +111,7 @@ void WmNewContactsNotify(int p_ConnId, char* p_ChatId, char* p_Name, char* p_Pho
 void WmNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned,
                       int p_IsArchived, int p_LastMessageTime);
 void WmNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
-void WmNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+void WmNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath, int p_Full);
 void WmNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 void WmJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
 void WmCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);

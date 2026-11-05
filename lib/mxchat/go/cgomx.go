@@ -20,7 +20,7 @@ package main
 // extern void MxNewTypingNotify(int p_ConnId, char* p_ChatId, char* p_UserId, int p_IsTyping);
 // extern void MxNewStatusNotify(int p_ConnId, char* p_UserId, int p_IsOnline, long long p_TimeSeen);
 // extern void MxNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
-// extern void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+// extern void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath, int p_Full);
 // extern void MxNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 // extern void MxJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
 // extern void MxCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);
@@ -209,8 +209,8 @@ func CMxDownloadFile(connId int, chatId *C.char, msgId *C.char, fileId *C.char, 
 }
 
 //export CMxGetAvatar
-func CMxGetAvatar(connId int, avatarId *C.char) int {
-	return MxGetAvatar(connId, C.GoString(avatarId))
+func CMxGetAvatar(connId int, avatarId *C.char, full int) int {
+	return MxGetAvatar(connId, C.GoString(avatarId), full != 0)
 }
 
 //export CMxReconnect
@@ -285,8 +285,12 @@ func CMxNewGroupMembersNotify(connId int, chatId string, membersJson string) {
 	C.MxNewGroupMembersNotify(C.int(connId), C.CString(chatId), C.CString(membersJson))
 }
 
-func CMxNewAvatarNotify(connId int, avatarId string, filePath string) {
-	C.MxNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath))
+func CMxNewAvatarNotify(connId int, avatarId string, filePath string, full bool) {
+	fullInt := 0
+	if full {
+		fullInt = 1
+	}
+	C.MxNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath), C.int(fullInt))
 }
 
 func CMxJoinChatNotify(connId int, link string, success bool, chatId string, errText string) {

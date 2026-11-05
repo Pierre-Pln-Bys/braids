@@ -25,8 +25,9 @@ var avatarQueue = make(chan struct{}, 1)
 // SgGetAvatar answers with CSgNewAvatarNotify: a user's profile picture
 // (decrypted with their profile key, else the picture from the phone's
 // contact sync) or a group's picture (decrypted with the group key). Files
-// are cached by the avatar path, which changes with the picture.
-func SgGetAvatar(connId int, avatarId string) int {
+// are cached by the avatar path, which changes with the picture. Signal has
+// one size: full answers with the same file.
+func SgGetAvatar(connId int, avatarId string, full bool) int {
 	go func() {
 		// requests can arrive before the client is up
 		var client *signalmeow.Client
@@ -45,7 +46,7 @@ func SgGetAvatar(connId int, avatarId string) int {
 		path := getAvatar(connId, client, avatarId)
 		<-avatarQueue
 
-		CSgNewAvatarNotify(connId, avatarId, path)
+		CSgNewAvatarNotify(connId, avatarId, path, full)
 	}()
 
 	return 0

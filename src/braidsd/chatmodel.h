@@ -75,6 +75,7 @@ public:
   void SendTyping(const std::string& p_AccountId, const std::string& p_ChatId, bool p_IsTyping);
   void GetMembers(const std::string& p_AccountId, const std::string& p_ChatId, const Reply& p_Reply);
   json GetAvatars(const std::string& p_AccountId, const std::vector<std::string>& p_Ids);
+  json GetFullAvatar(const std::string& p_AccountId, const std::string& p_Id);
   json GetDescriptions(const std::string& p_AccountId, const std::vector<std::string>& p_Ids);
   void JoinChat(const std::string& p_AccountId, const std::string& p_Link);
   // messages of a chat, or of all chats (p_AccountId and/or p_ChatId empty),
@@ -134,6 +135,7 @@ private:
     std::unordered_set<std::string> statusRequested;
     std::unordered_map<std::string, std::string> avatars; // user or chat id -> image path ("" none)
     std::unordered_set<std::string> avatarsRequested;
+    std::unordered_map<std::string, std::string> fullAvatars; // full-size pictures fetched for the viewer
     std::unordered_map<std::string, std::string> descriptions; // user or chat id -> text ("" none)
     std::unordered_set<std::string> descriptionsRequested;
     // braids' own mute setting per chat, overrides the messenger's (kept in
