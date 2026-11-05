@@ -1,0 +1,147 @@
+name: Preview
+
+# Test builds of pull requests and branches, installable without a release:
+#
+#   curl -fsSL https://pebll.github.io/braids/install.sh | sh -s -- --pr 16
+#   curl -fsSL https://pebll.github.io/braids/install.sh | sh -s -- --branch my/branch
+#
+# Every pull request to main (from this repository: forks have no access to
+# the Telegram credentials) is built on each push and published as the
+# pre-release "pr-<number>" (tarballs for x86_64 and aarch64), replaced on the
+# next push and deleted when the pull request is closed. A branch is built
+# when this workflow is run by hand on it ("branch-<name>", / and other
+# characters as -). Pre-releases are never "latest": the normal install,
+# the website and the app's update notice keep using the real releases.
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        # the pull request's own commit, not the merge with main
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - name: Setup ccache
+      uses: ./.github/actions/setup-ccache
+      with:
+        # shared with the release builds: mostly cached
+        cache_key_prefix: release-${{ matrix.arch }}
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: app/package-lock.json
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: lib/wmchat/go/go.mod
+        cache: false
+    - name: System dependencies
+      run: |
+        ./make.sh deps -y
+        dpkg -l | awk '/^ii +libunwind-[0-9]+-dev/ {print $2}' | xargs -r sudo apt-get remove -y
+        sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libgstreamer1.0-dev
+    - name: Rust cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          app/src-tauri/target
+        key: cargo-release-${{ matrix.arch }}-${{ hashFiles('app/src-tauri/Cargo.lock') }}
+    - name: Package
+      env:
+        TG_API_ID: ${{ secrets.TG_API_ID }}
+        TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        BRAIDS_BUILD: >-
+          ${{ github.event.pull_request.number && format('pull request #{0}', github.event.pull_request.number) || format('branch {0}', github.ref_name) }}
+          at ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        export BRAIDS_BUILD="$(echo "${BRAIDS_BUILD}" | tr -s ' \n' ' ' | sed 's/ $//')"
+        utils/dist/package-linux
+    - name: Install script works with the package
+      run: |
+        HOME="$(mktemp -d)" BRAIDS_TARBALL="$PWD/dist/braids-linux-${{ matrix.arch }}.tar.gz" sh utils/dist/install.sh
+    - name: Keep package
+      uses: actions/upload-artifact@v4
+      with:
+        name: preview-${{ matrix.arch }}
+        path: |
+          dist/braids-linux-*.tar.gz
+          dist/braids-linux-*.tar.gz.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Packages
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        pattern: preview-*
+        merge-multiple: true
+    - name: Pre-release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        BRANCH: ${{ github.ref_name }}
+        SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        if [ -n "${PR}" ]; then
+          tag="pr-${PR}"; option="--pr ${PR}"; what="pull request #${PR}: ${PR_TITLE}"
+        else
+          tag="branch-$(printf '%s' "${BRANCH}" | tr -c 'A-Za-z0-9._-' '-')"; option="--branch ${BRANCH}"; what="branch ${BRANCH}"
+        fi
+        cat > notes.md <<EOF
+        Test build of ${what} at ${SHA}, not a release. Install it with:
+
+            curl -fsSL https://pebll.github.io/braids/install.sh | sh -s -- ${option}
+
+        Back to the latest release:
+
+            curl -fsSL https://pebll.github.io/braids/install.sh | sh
+        EOF
+        # replaced on every push: the tag moves to the new commit
+        gh release delete "${tag}" --cleanup-tag --yes 2>/dev/null || true
+        gh release create "${tag}" dist/* --prerelease --latest=false --target "${SHA}" \
+          --title "Test build: ${what}" --notes-file notes.md
+
+  cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Delete the pre-release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: gh release delete "pr-${{ github.event.pull_request.number }}" --cleanup-tag --yes || true
