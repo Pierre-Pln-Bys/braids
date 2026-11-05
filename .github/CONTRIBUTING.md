@@ -51,6 +51,13 @@ of the layout and the build commands.
 Pull requests
 -------------
 
+Every pull request from this repository gets a test build about 15 minutes
+after each push, which anyone can install to try it:
+
+    curl -fsSL https://pebll.github.io/braids/install.sh | sh -s -- --pr <number>
+
+Running the install command without options goes back to the latest release.
+
 - For anything bigger than a small fix, open an issue first so we can agree
   on the approach.
 - Keep pull requests focused on one change, with tests where it makes sense

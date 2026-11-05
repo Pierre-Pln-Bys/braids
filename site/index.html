@@ -346,6 +346,14 @@ cd app && npm install && npm run tauri build</pre>
           <p>Every release lists its files with SHA-256 checksums. The install script verifies them for you.</p>
           <div class="actions"><a class="btn ghost" href="https://github.com/pebll/braids/releases">All releases</a></div>
         </div>
+        <div class="card">
+          <h3>Test a pull request</h3>
+          <p>Every open pull request gets a test build, about 15 minutes after each push. Install it with the pull request's number, try it, and go back to the latest release with the normal command.</p>
+          <pre>curl -fsSL https://pebll.github.io/braids/install.sh \
+  | sh -s -- --pr 16</pre>
+          <p class="install-note">A branch without a pull request: <code>--branch &lt;name&gt;</code>, after running the <a href="https://github.com/pebll/braids/actions/workflows/preview.yml">Preview workflow</a> on it. Test builds are not releases and can break.</p>
+          <div class="actions"><a class="btn ghost" href="https://github.com/pebll/braids/pulls">Open pull requests</a></div>
+        </div>
       </div>
       <p class="soon">braids is made for Linux.</p>
     </div>

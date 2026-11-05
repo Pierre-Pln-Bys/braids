@@ -76,7 +76,10 @@ runs braidsd from a cache copy, it outlives the mount);
 `utils/dist/install.sh` installs the tarball per user; tag `v*` runs
 `.github/workflows/release.yml` (both arches, all formats; release notes are
 the version's section of `CHANGELOG.md`: add user-facing changes under
-`[Unreleased]` and rename it to the version before tagging). Website: `site/` (GitHub Pages,
+`[Unreleased]` and rename it to the version before tagging). Test builds:
+`.github/workflows/preview.yml` publishes every pull request as the
+pre-release `pr-<N>` (`install.sh --pr N`; `--branch NAME` after running it
+by hand on a branch), deleted when the pull request closes. Website: `site/` (GitHub Pages,
 `.github/workflows/pages.yml`); screenshots and the README demo GIF
 (`site/img/demo.gif`) come from `app/scripts/site-screenshots.mjs`.
 

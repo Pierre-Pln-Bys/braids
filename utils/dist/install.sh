@@ -15,8 +15,14 @@
 #   ~/.local/share/applications/    menu entry
 #
 # Options (after "sh -s --" when piped):
-#   --uninstall   remove braids (keeps accounts and messages in ~/.config/braids)
-#   --purge       remove braids and ~/.config/braids
+#   --uninstall      remove braids (keeps accounts and messages in ~/.config/braids)
+#   --purge          remove braids and ~/.config/braids
+#   --version vX.Y.Z install that release instead of the latest
+#   --pr N           install the test build of pull request N (made by the
+#                    Preview workflow for every pull request)
+#   --branch NAME    install the test build of a branch (Preview workflow run
+#                    by hand on that branch)
+# Running the script again without options goes back to the latest release.
 #
 # Environment:
 #   BRAIDS_TARBALL   install from this local braids-linux-<arch>.tar.gz instead
@@ -52,12 +58,25 @@ uninstall() {
   say "braids removed."
 }
 
-case "${1:-}" in
-  --uninstall) uninstall; say "Accounts and messages are kept in ~/.config/braids."; exit 0 ;;
-  --purge) uninstall; rm -rf "${XDG_CONFIG_HOME:-${HOME}/.config}/braids"; say "Accounts and messages removed."; exit 0 ;;
-  "") ;;
-  *) die "unknown option ${1} (use --uninstall or --purge)" ;;
-esac
+TAG="${BRAIDS_VERSION:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --uninstall) uninstall; say "Accounts and messages are kept in ~/.config/braids."; exit 0 ;;
+    --purge) uninstall; rm -rf "${XDG_CONFIG_HOME:-${HOME}/.config}/braids"; say "Accounts and messages removed."; exit 0 ;;
+    --version) [ $# -ge 2 ] || die "--version needs a release, e.g. --version v0.3.0"; TAG="$2"; shift ;;
+    --pr)
+      [ $# -ge 2 ] || die "--pr needs a pull request number, e.g. --pr 16"
+      case "$2" in *[!0-9]* | "") die "--pr needs a pull request number, e.g. --pr 16" ;; esac
+      TAG="pr-$2"; shift ;;
+    --branch)
+      [ $# -ge 2 ] || die "--branch needs a branch name"
+      # the Preview workflow's tag: branch- and the name with / and other
+      # characters as -
+      TAG="branch-$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '-')"; shift ;;
+    *) die "unknown option $1 (use --pr N, --branch NAME, --version vX.Y.Z, --uninstall or --purge)" ;;
+  esac
+  shift
+done
 
 [ "$(uname -s)" = "Linux" ] || die "braids is available for Linux only for now."
 ARCH="$(uname -m)"
@@ -74,13 +93,18 @@ if [ -n "${BRAIDS_TARBALL:-}" ]; then
   cp "${BRAIDS_TARBALL}" "${TMP}/braids.tar.gz"
 else
   command -v curl >/dev/null 2>&1 || die "curl is needed."
-  if [ -n "${BRAIDS_VERSION:-}" ]; then
-    URL="https://github.com/${REPO}/releases/download/${BRAIDS_VERSION}/braids-linux-${ARCH}.tar.gz"
+  if [ -n "${TAG}" ]; then
+    URL="https://github.com/${REPO}/releases/download/${TAG}/braids-linux-${ARCH}.tar.gz"
   else
     URL="https://github.com/${REPO}/releases/latest/download/braids-linux-${ARCH}.tar.gz"
   fi
   say "Downloading ${URL}"
-  curl -fL --progress-bar -o "${TMP}/braids.tar.gz" "${URL}" || die "download failed."
+  if ! curl -fL --progress-bar -o "${TMP}/braids.tar.gz" "${URL}"; then
+    case "${TAG}" in
+      pr-* | branch-*) die "no test build found for ${TAG}: it is made by the Preview workflow (about 15 minutes after a push), see https://github.com/${REPO}/actions/workflows/preview.yml" ;;
+      *) die "download failed." ;;
+    esac
+  fi
   curl -fsSL -o "${TMP}/braids.tar.gz.sha256" "${URL}.sha256" || die "checksum download failed."
   EXPECTED="$(cut -d ' ' -f 1 "${TMP}/braids.tar.gz.sha256")"
   ACTUAL="$(sha256sum "${TMP}/braids.tar.gz" | cut -d ' ' -f 1)"
@@ -106,6 +130,10 @@ cp "${DEST}/share/icons/hicolor/256x256/apps/braids.png" "${ICONS}/256x256/apps/
 refresh_desktop
 
 say "braids $(cat "${DEST}/share/braids-version" 2>/dev/null || true) installed to ${DEST}"
+if [ -f "${DEST}/share/braids-build" ]; then
+  say "This is a test build: $(cat "${DEST}/share/braids-build")"
+  say "Back to the latest release: curl -fsSL https://pebll.github.io/braids/install.sh | sh"
+fi
 
 # system libraries the app needs (the rest ships with braids)
 MISSING=""
@@ -125,8 +153,11 @@ if [ -n "${MISSING}" ]; then
 fi
 
 # videos (H.264, most MP4s) and AAC audio need GStreamer's libav plugin
-if [ -z "${MISSING}" ] && ! ls /usr/lib/*/gstreamer-1.0/libgstlibav.so /usr/lib64/gstreamer-1.0/libgstlibav.so \
-    /usr/lib/gstreamer-1.0/libgstlibav.so >/dev/null 2>&1; then
+HAS_LIBAV=""
+for f in /usr/lib/*/gstreamer-1.0/libgstlibav.so /usr/lib64/gstreamer-1.0/libgstlibav.so /usr/lib/gstreamer-1.0/libgstlibav.so; do
+  [ -e "${f}" ] && HAS_LIBAV=1
+done
+if [ -z "${MISSING}" ] && [ -z "${HAS_LIBAV}" ]; then
   say ""
   say "To play videos (MP4), install GStreamer's libav plugin, e.g.:"
   say "  Debian/Ubuntu: sudo apt install gstreamer1.0-libav"

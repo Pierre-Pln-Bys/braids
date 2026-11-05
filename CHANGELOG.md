@@ -6,6 +6,11 @@ release workflow publishes the section of a version as its release notes.
 
 ## [Unreleased]
 
+### New
+- Test builds of pull requests: `install.sh --pr <number>` (or
+  `--branch <name>`) installs them without a release; see the website's
+  download section.
+
 ## [0.3.0] - 2026-11-05
 
 ### New
