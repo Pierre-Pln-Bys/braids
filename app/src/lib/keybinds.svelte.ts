@@ -23,6 +23,7 @@ export type Action =
   | 'nextChat'
   | 'prevChat'
   | 'nextUnread'
+  | 'focusList'
   | 'searchChats'
   | 'searchInChat'
   | 'editLast'
@@ -43,8 +44,9 @@ export const ACTIONS: { id: Action; group: ActionGroup; label: string; defaults:
   { id: 'goSignal', group: 'goto', label: 'Signal account', defaults: ['Mod+S'] },
   { id: 'goTelegram', group: 'goto', label: 'Telegram account', defaults: ['Mod+T'] },
   { id: 'goWhatsApp', group: 'goto', label: 'WhatsApp account', defaults: ['Mod+W'] },
-  { id: 'nextChat', group: 'goto', label: 'Next chat', defaults: ['Alt+ArrowDown', 'Alt+J'] },
-  { id: 'prevChat', group: 'goto', label: 'Previous chat', defaults: ['Alt+ArrowUp', 'Alt+K'] },
+  { id: 'nextChat', group: 'goto', label: 'Highlight next chat', defaults: ['Alt+ArrowDown', 'Alt+J'] },
+  { id: 'prevChat', group: 'goto', label: 'Highlight previous chat', defaults: ['Alt+ArrowUp', 'Alt+K'] },
+  { id: 'focusList', group: 'goto', label: 'Back to chat list', defaults: ['Alt+ArrowLeft', 'Alt+H'] },
   { id: 'nextUnread', group: 'goto', label: 'Next unread chat', defaults: ['Mod+N'] },
   { id: 'searchChats', group: 'action', label: 'Search chats', defaults: ['Mod+Space'] },
   { id: 'searchInChat', group: 'action', label: 'Search in chat', defaults: ['Mod+F'] },

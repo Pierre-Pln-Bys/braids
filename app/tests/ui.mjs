@@ -552,12 +552,43 @@ try {
   await page.keyboard.press('Escape');
   const selectedName = () => page.locator('[role=option][aria-selected=true] .name').textContent();
   const before = await selectedName();
+  const cursorName = () => page.locator('.chatlist .row.cursor .name').textContent();
   await page.keyboard.press('Alt+j');
-  await page.waitForFunction((b) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent !== b, before);
-  check(true, 'Alt+J opens the next chat');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  check((await selectedName()) === before && (await cursorName()) !== before &&
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Chats'), 'Alt+J highlights the next chat without opening it');
+  const highlighted = await cursorName();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction((n) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent === n, highlighted);
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(await page.locator('textarea[aria-label=Message]').inputValue() === '' && await page.locator('.chatlist .row.cursor').count() === 0,
+    'Enter opens the highlighted chat, cursor in the composer');
   await page.keyboard.press('Alt+k');
+  await page.keyboard.press('Enter');
   await page.waitForFunction((b) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent === b, before);
-  check(true, 'Alt+K back to the previous chat');
+  check(true, 'Alt+K and Enter go back to the previous chat');
+  await page.keyboard.press('Alt+h');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  check((await cursorName()) === before && await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Chats'),
+    'Alt+H goes back to the chat list, at the open chat');
+  await page.keyboard.press('j');
+  check((await cursorName()) !== before && (await selectedName()) === before, 'j in the list moves the highlight');
+  await page.locator('textarea[aria-label=Message]').focus();
+  check(await page.locator('.chatlist .row.cursor').count() === 0, 'the highlight goes away when the list loses the focus');
+  // search: the highlight moves through the results, the search keeps the focus
+  await page.keyboard.press('Control+Space');
+  await page.keyboard.type('i');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  const firstHit = await cursorName();
+  await page.keyboard.press('Alt+j');
+  check((await cursorName()) !== firstHit && await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search chats'),
+    'Alt+J in the search moves the highlight, typing goes on in the search');
+  const target = await cursorName();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction((n) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent === n, target);
+  check(true, 'Enter in the search opens the highlighted result');
+  await page.fill('input[aria-label="Search chats"]', '');
+  await page.getByRole('option', { name: new RegExp(before) }).first().click();
   await page.keyboard.press('Control+b');
   await page.locator('.chatlist h2', { hasText: 'Favorites' }).waitFor();
   check(true, 'Ctrl+B shows favorites');
@@ -702,6 +733,34 @@ try {
   await page.keyboard.press('Control+N');
   check(await page.inputValue('input[aria-label="Search chats"]') === '' && (await page.getByRole('option').count()) >= 2,
     'next unread (Ctrl+N) clears the search');
+  // no unread chat left: Ctrl+N closes the chat ("pick a chat")
+  for (let n = 0; n < 30 && await page.locator('.conv').count(); n++) {
+    await page.keyboard.press('Control+N');
+    await page.waitForTimeout(150);
+  }
+  check(await page.locator('.conv').count() === 0 && await page.locator('.no-chat').count() === 1 &&
+    await page.locator('[role=option][aria-selected=true]').count() === 0, 'Ctrl+N without unread chats closes the chat');
+
+  // narrow window: the list or the chat; Alt+H back to the list, Enter opens
+  await page.setViewportSize({ width: 800, height: 800 });
+  await page.getByRole('option', { name: /The Office/ }).click();
+  await page.locator('.conv').waitFor();
+  check(await page.locator('.chatlist').count() === 0, 'narrow: the chat replaces the list');
+  await page.keyboard.press('Alt+h');
+  await page.locator('.chatlist .row.cursor', { hasText: 'The Office' }).waitFor();
+  check(await page.locator('.conv').count() === 0, 'narrow: Alt+H shows the list, the chat highlighted');
+  await page.keyboard.press('Alt+j');
+  const narrowTarget = await page.locator('.chatlist .row.cursor .name').textContent();
+  check(narrowTarget !== 'The Office' && await page.locator('.conv').count() === 0, 'narrow: Alt+J highlights in the list');
+  await page.keyboard.press('Enter');
+  await page.locator('.conv header', { hasText: narrowTarget }).waitFor();
+  check(true, 'narrow: Enter opens the highlighted chat');
+  await page.keyboard.press('Alt+j');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  check(await page.locator('.conv').count() === 0, 'narrow: Alt+J from a chat goes back to the list');
+  await page.keyboard.press('Control+a');
+  check(await page.locator('.chatlist').count() === 1, 'narrow: folder shortcuts show the list');
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // favorites pinned at the top instead of their own folder
   await page.keyboard.press('Control+,');
