@@ -6,10 +6,37 @@ release workflow publishes the section of a version as its release notes.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-05
+
 ### New
+- Keyboard shortcuts overview: Ctrl+/ lists all shortcuts with your own
+  bindings, and links to Settings → Keyboard to change them. Contributed by
+  @Pierre-Pln-Bys (#14, #8).
+- Profile pictures open in full size: the viewer shows the small picture at
+  once and switches to the full-resolution one when it has been fetched
+  (Telegram, WhatsApp and Matrix; Signal has one size).
 - Test builds of pull requests: `install.sh --pr <number>` (or
   `--branch <name>`) installs them without a release; see the website's
   download section.
+
+### Fixed
+- The app icon reads at small sizes (GNOME top bar, browser tab): a bigger
+  braid with thicker strands on a warm grey circle that stays visible on
+  dark panels.
+- Shortcuts follow the key's character on any layout: Ctrl+, opens Settings
+  also where "," sits on the US M key (it went to Matrix). Non-latin layouts
+  keep using the US letter positions.
+- The tray icon could stay empty in GNOME's top bar after braids restarted:
+  every start reused the same icon file name, which the panel kept cached.
+  Each start now uses its own file, and leftovers are removed.
+- Labels no longer break onto two lines in narrow controls ("On top" in
+  Settings, "Message a contact" in New chat).
+
+### Changed
+- "Go to" shortcuts (folders, accounts, Ctrl+N with nothing unread, back to
+  chat list) clear the search. The first chat gets a light highlight that
+  turns full blue when you move it and fades back after 10 seconds; the
+  mouse hover hides until the mouse moves.
 
 ## [0.3.0] - 2026-11-05
 

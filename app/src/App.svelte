@@ -116,7 +116,7 @@
       }
     }
     store.closeChat();
-    toList(() => ui.list?.focus());
+    goTo();
   }
 
   // the account of a protocol; with several, the next one after the shown one
@@ -129,6 +129,14 @@
     return true;
   }
 
+  // after a "go to": the whole folder (no search filter), the first chat
+  // lightly highlighted
+  function goTo() {
+    store.search = '';
+    ui.listCursor = '';
+    toList(() => ui.list?.first());
+  }
+
   function run(action: Action): boolean {
     switch (action) {
       case 'nextChat':
@@ -136,6 +144,7 @@
         toList(() => ui.list?.move(action === 'nextChat' ? 1 : -1));
         return true;
       case 'focusList':
+        store.search = '';
         ui.listCursor = '';
         toList(() => ui.list?.focus());
         return true;
@@ -162,23 +171,23 @@
         return true;
       case 'goAll':
         store.filter = { kind: 'all' };
-        toList(() => ui.list?.focus());
+        goTo();
         return true;
       case 'goUnread':
         store.filter = { kind: 'unread' };
-        toList(() => ui.list?.focus());
+        goTo();
         return true;
       case 'goFavorites':
         if (settings.favorites === 'top') return false;
         store.filter = { kind: 'favorites' };
-        toList(() => ui.list?.focus());
+        goTo();
         return true;
       case 'goMatrix':
       case 'goSignal':
       case 'goTelegram':
       case 'goWhatsApp':
         if (!goAccount(ACCOUNT_ACTIONS[action]!)) return false;
-        toList(() => ui.list?.focus());
+        goTo();
         return true;
       case 'settings':
         ui.settingsSection = 'general';

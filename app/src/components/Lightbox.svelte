@@ -22,6 +22,8 @@
   const lb = $derived(ui.lightbox!);
   const item = $derived(lb.items[lb.index]);
   const count = $derived(lb.items.length);
+  // profile pictures: the small one until the full-size one has arrived
+  const path = $derived((item?.fullAvatar && store.fullAvatars[item.fullAvatar]) || item?.path);
 
   let scale = $state(1);
   let x = $state(0);
@@ -134,7 +136,7 @@
         <button class="icon-btn" aria-label="Zoom out" title="Zoom out (-)" onclick={() => zoomTo(scale / 1.5)} disabled={scale <= MIN}><ZoomOut size={19} /></button>
         <button class="icon-btn" aria-label="Zoom in" title="Zoom in (+)" onclick={() => zoomTo(scale * 1.5)} disabled={scale >= MAX}><ZoomIn size={19} /></button>
       {/if}
-      <button class="icon-btn" aria-label="Open with default app" title="Open with default app" onclick={() => api.openPath(item.path).catch((e) => store.toastError(e))}><ExternalLink size={19} /></button>
+      <button class="icon-btn" aria-label="Open with default app" title="Open with default app" onclick={() => api.openPath(path).catch((e) => store.toastError(e))}><ExternalLink size={19} /></button>
       <button class="icon-btn" aria-label="Close" title="Close (Esc)" onclick={close}><X size={20} /></button>
     </div>
     <div
@@ -165,7 +167,7 @@
           {/key}
         {/if}
       {:else}
-        <img src={api.fileUrl(item.path)} alt={item.name} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
+        <img src={api.fileUrl(path)} alt={item.name} class:avatar={!!item.fullAvatar} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
       {/if}
       {#if count > 1}
         <button class="nav prev" aria-label="Previous image" title="Previous (← or k)" onclick={() => go(-1)} onpointerdown={(e) => e.stopPropagation()}><ChevronLeft size={26} /></button>
@@ -187,6 +189,7 @@
   .lb-stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0 64px; touch-action: none; cursor: default; }
   .lb-stage.zoomed { cursor: grab; }
   .lb-stage.zoomed:active { cursor: grabbing; }
+  .lb-stage img.avatar { width: min(640px, 100%); height: auto; }
   .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; user-select: none; transform-origin: center center; transition: transform 60ms linear; }
   .lb-stage video { max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; }
   .lb-failed { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #f2efeb; text-align: center; }

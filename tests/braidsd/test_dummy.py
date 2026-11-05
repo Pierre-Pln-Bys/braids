@@ -262,6 +262,19 @@ def main():
         expect_error(lambda: d.call("chats.createGroup", {"accountId": account_id, "name": " ", "userIds": ["Jim_0"]}),
                      -32602, "group without a name rejected")
 
+        # profile pictures: small ones for the avatars, the full-size one for the viewer
+        small = d.call("avatars.get", {"accountId": account_id, "ids": ["Pam_0"]})["avatars"].get("Pam_0")
+        if small is None:
+            small = d.wait_event("avatar.updated", lambda p: p["id"] == "Pam_0")["path"]
+        check(small and "-full" not in small, "small avatar")
+        r = d.call("avatars.getFull", {"accountId": account_id, "id": "Pam_0"})
+        full = r["path"] if "path" in r else d.wait_event("avatar.full", lambda p: p["id"] == "Pam_0")["path"]
+        check(full.endswith("Pam_0-full.svg") and os.path.exists(full), "avatar.full with the full-size picture")
+        check(d.call("avatars.getFull", {"accountId": account_id, "id": "Pam_0"}).get("path") == full,
+              "full-size picture answered from the cache")
+        d.call("avatars.getFull", {"accountId": account_id, "id": "Kevin_0"})
+        check(d.wait_event("avatar.full", lambda p: p["id"] == "Kevin_0")["path"] == "", "no picture: empty path")
+
         # braids' own mute setting, kept across restarts
         check(account["capabilities"]["muteChat"], "mute capability")
         check(not group["isMuted"], "group not muted initially")

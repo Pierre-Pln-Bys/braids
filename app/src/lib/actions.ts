@@ -121,7 +121,8 @@ export function openLink(url: string) {
 export function viewPicture(accountId: string, id: string, name: string): boolean {
   const path = store.avatar(accountId, id);
   if (!path) return false;
-  openLightbox([{ path, name: `${name} – profile picture` }], path);
+  openLightbox([{ path, name: `${name} – profile picture`, fullAvatar: chatKey(accountId, id) }], path);
+  store.requestFullAvatar(accountId, id);
   return true;
 }
 

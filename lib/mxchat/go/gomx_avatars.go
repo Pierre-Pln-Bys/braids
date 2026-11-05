@@ -31,8 +31,9 @@ func avatarsPath(path string) string { return path + "/avatars" }
 // MxGetAvatar resolves the avatar of a user (@...) or room (!...; for a
 // direct room the other user's) and answers with CMxNewAvatarNotify, an
 // empty path when there is none. Images are cached by mxc uri, so only the
-// (small) lookup of the uri hits the server again.
-func MxGetAvatar(connId int, avatarId string) int {
+// (small) lookup of the uri hits the server again. Avatars are 96 px
+// thumbnails, with full the original image.
+func MxGetAvatar(connId int, avatarId string, full bool) int {
 	conn := GetConn(connId)
 	if conn == nil {
 		return -1
@@ -52,13 +53,13 @@ func MxGetAvatar(connId int, avatarId string) int {
 		path := ""
 		if !uri.IsEmpty() {
 			var err error
-			path, err = conn.downloadAvatar(ctx, uri)
+			path, err = conn.downloadAvatar(ctx, uri, full)
 			if err != nil {
 				LOG_WARNING(fmt.Sprintf("avatar download failed %s: %v", avatarId, err))
 			}
 		}
 
-		CMxNewAvatarNotify(conn.connId, avatarId, path)
+		CMxNewAvatarNotify(conn.connId, avatarId, path, full)
 	}()
 
 	return 0
@@ -95,9 +96,13 @@ func (conn *MxConn) avatarURI(ctx context.Context, avatarId string) id.ContentUR
 	return id.ContentURI{}
 }
 
-func (conn *MxConn) downloadAvatar(ctx context.Context, uri id.ContentURI) (string, error) {
+func (conn *MxConn) downloadAvatar(ctx context.Context, uri id.ContentURI, full bool) (string, error) {
 	dir := avatarsPath(conn.path)
-	sum := sha256.Sum256([]byte(uri.String()))
+	key := uri.String()
+	if full {
+		key += "#full"
+	}
+	sum := sha256.Sum256([]byte(key))
 	base := dir + "/" + hex.EncodeToString(sum[:12])
 	for _, ext := range []string{".jpg", ".png", ".webp", ".gif"} {
 		if _, err := os.Stat(base + ext); err == nil {
@@ -110,8 +115,12 @@ func (conn *MxConn) downloadAvatar(ctx context.Context, uri id.ContentURI) (stri
 	}
 
 	// a thumbnail is enough for an avatar; servers without thumbnails get the original
-	resp, err := conn.client.DownloadThumbnail(ctx, uri, 96, 96, mautrix.DownloadThumbnailExtra{Method: "crop"})
-	if err != nil || resp.StatusCode != http.StatusOK {
+	var resp *http.Response
+	var err error
+	if !full {
+		resp, err = conn.client.DownloadThumbnail(ctx, uri, 96, 96, mautrix.DownloadThumbnailExtra{Method: "crop"})
+	}
+	if full || err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
 			resp.Body.Close()
 		}

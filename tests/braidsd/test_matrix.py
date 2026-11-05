@@ -338,6 +338,10 @@ def main():
         check(avatars[alice_id] == "", "no avatar: empty path")
         again = d.call("avatars.get", {"accountId": account_id, "ids": [bob_id, alice_id]})
         check(again["avatars"] == {bob_id: avatars[bob_id], alice_id: ""}, "known avatars returned directly")
+        d.call("avatars.getFull", {"accountId": account_id, "id": bob_id})
+        full = d.wait_event("avatar.full", lambda p: p["id"] == bob_id, timeout=60)["path"]
+        with open(full, "rb") as f:
+            check(f.read(4) == b"\x89PNG" and full != avatars[bob_id], "full-size avatar: the original, cached apart")
         check(d.close() == 0, "clean exit")
 
         # while braidsd is stopped: a message, pages of state events only, then

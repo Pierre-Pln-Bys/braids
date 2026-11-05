@@ -32,6 +32,32 @@ struct AppState {
     tray_level: AtomicU64, // colored strands shown in the tray icon
 }
 
+/// The tray's id. On Linux the icon images are files named after it
+/// ($XDG_RUNTIME_DIR/tray-icon/tray-icon-<id>-<n>.png, n counting from 0 at
+/// every start). With a fixed id every start reused the same file, which
+/// GNOME's indicator extension may keep cached from a moment it was missing
+/// (an empty tray item until the next login); "main" is also shared with
+/// other Tauri apps. So: "braids-<pid>", and old braids files are removed.
+fn tray_id() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| format!("braids-{}", std::process::id()))
+}
+
+/// Icon files of earlier braids runs (killed, so they could not clean up).
+fn remove_old_tray_files() {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("tray-icon");
+    let own = format!("tray-icon-{}-", tray_id());
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // only braids' own: one braids runs at a time (single instance)
+            if name.starts_with("tray-icon-braids-") && !name.starts_with(&own) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
 /// Tray icon for a number of colored strands: 0 monochrome (a template image
 /// on macOS, white for the usual dark Linux panels), 1 / 2 / 3 for 1, 2 and
 /// 3+ unread chats (app/scripts/tray-icons.sh).
@@ -129,7 +155,7 @@ fn set_badge(app: AppHandle, state: State<'_, AppState>, count: u32) {
         let _ = window.set_badge_count(if count > 0 { Some(count as i64) } else { None });
         let _ = window.set_title(&if count > 0 { format!("braids ({count})") } else { "braids".into() });
     }
-    if let Some(tray) = app.tray_by_id("main") {
+    if let Some(tray) = app.tray_by_id(tray_id()) {
         let tip = match count { 0 => "braids".into(), 1 => "braids — 1 unread chat".into(), _ => format!("braids — {count} unread chats") };
         let _ = tray.set_tooltip(Some(&tip));
         let level = u64::from(count.min(3));
@@ -238,9 +264,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
     let quit = MenuItem::with_id(app, "quit", "Quit braids", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
 
+    remove_old_tray_files();
     let icon = tray_icon(0)?;
 
-    TrayIconBuilder::with_id("main")
+    TrayIconBuilder::with_id(tray_id())
         .icon(icon)
         .icon_as_template(true)
         .tooltip("braids")
@@ -302,7 +329,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
-                if state.close_to_tray.load(Ordering::SeqCst) && window.app_handle().tray_by_id("main").is_some() {
+                if state.close_to_tray.load(Ordering::SeqCst) && window.app_handle().tray_by_id(tray_id()).is_some() {
                     api.prevent_close();
                     let _ = window.hide();
                 }

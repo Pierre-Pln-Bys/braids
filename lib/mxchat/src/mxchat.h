@@ -114,7 +114,7 @@ void MxNewMessageReactionNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, cha
 void MxNewTypingNotify(int p_ConnId, char* p_ChatId, char* p_UserId, int p_IsTyping);
 void MxNewStatusNotify(int p_ConnId, char* p_UserId, int p_IsOnline, long long p_TimeSeen);
 void MxNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
-void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath, int p_Full);
 void MxNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 void MxJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
 void MxCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);

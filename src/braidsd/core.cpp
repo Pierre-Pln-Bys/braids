@@ -27,7 +27,7 @@
 #include "timeutil.h"
 
 // semver of the API; clients must match the major version
-static const std::string s_ApiVersion = "0.10.0";
+static const std::string s_ApiVersion = "0.11.0";
 static const int64_t s_StartTime = TimeUtil::GetCurrentTimeMSec();
 
 static const char* AuthStepToString(AuthStep p_Step)
@@ -493,6 +493,10 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
     const std::string accountId = ParamStr(params, "accountId");
     p_Reply.Ok((p_Method == "avatars.get") ? m_ChatModel->GetAvatars(accountId, ids)
                                            : m_ChatModel->GetDescriptions(accountId, ids));
+  }
+  else if (p_Method == "avatars.getFull")
+  {
+    p_Reply.Ok(m_ChatModel->GetFullAvatar(ParamStr(params, "accountId"), ParamStr(params, "id")));
   }
   else if (p_Method == "members.get")
   {

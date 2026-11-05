@@ -710,7 +710,7 @@ void MxChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       {
         std::shared_ptr<GetAvatarRequest> getAvatarRequest =
           std::static_pointer_cast<GetAvatarRequest>(p_RequestMessage);
-        CMxGetAvatar(m_ConnId, const_cast<char*>(getAvatarRequest->id.c_str()));
+        CMxGetAvatar(m_ConnId, const_cast<char*>(getAvatarRequest->id.c_str()), getAvatarRequest->full ? 1 : 0);
       }
       break;
 
@@ -1278,7 +1278,7 @@ void MxNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson)
   free(p_MembersJson);
 }
 
-void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath)
+void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath, int p_Full)
 {
   MxChat* instance = MxChat::GetInstance(p_ConnId);
   if (instance != nullptr)
@@ -1286,6 +1286,7 @@ void MxNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath)
     std::shared_ptr<NewAvatarNotify> notify = std::make_shared<NewAvatarNotify>(instance->GetProfileId());
     notify->id = std::string(p_Id);
     notify->filePath = std::string(p_FilePath);
+    notify->full = (p_Full != 0);
     DeferNotify(instance, notify);
   }
 

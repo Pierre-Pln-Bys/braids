@@ -123,8 +123,23 @@
   const keys = $derived([...chats.map((c) => chatKey(c.accountId, c.id)), ...found.map(hitKey)]);
   const searchFocused = () => !!searchInput && document.activeElement === searchInput;
 
+  // The highlight is full blue while used, light otherwise: after a "go to"
+  // (on the first chat), and again after 10 s without moving it. Keyboard
+  // use hides the mouse hover until the mouse moves.
+  let cursorActive = $state(false);
+  let keyboardNav = $state(false);
+  let activeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function activate() {
+    cursorActive = true;
+    keyboardNav = true;
+    clearTimeout(activeTimer);
+    activeTimer = setTimeout(() => (cursorActive = false), 10000);
+  }
+
   // moves the highlight; it starts at the highlighted or the open chat
   function move(delta: number) {
+    activate();
     if (!keys.length) return;
     let i = keys.indexOf(ui.listCursor);
     if (i < 0) i = keys.indexOf(store.current);
@@ -135,9 +150,19 @@
   }
 
   function focusList() {
+    activate();
     if (!keys.includes(ui.listCursor)) ui.listCursor = keys.includes(store.current) ? store.current : (keys[0] ?? '');
     listEl?.focus({ preventScroll: true });
     scrollToCursor();
+  }
+
+  function first() {
+    clearTimeout(activeTimer);
+    cursorActive = false;
+    keyboardNav = true;
+    ui.listCursor = keys[0] ?? '';
+    listEl?.focus({ preventScroll: true });
+    if (listEl) listEl.scrollTop = 0;
   }
 
   function scrollToCursor() {
@@ -160,9 +185,10 @@
   }
 
   onMount(() => {
-    ui.list = { move, focus: focusList };
+    ui.list = { move, focus: focusList, first };
   });
   onDestroy(() => {
+    clearTimeout(activeTimer);
     if (ui.list?.move === move) ui.list = null;
   });
 
@@ -171,7 +197,10 @@
     const q = store.search.trim();
     const first = keys[0] ?? '';
     untrack(() => {
-      if (q && searchFocused() && !keys.includes(ui.listCursor)) ui.listCursor = first;
+      if (q && searchFocused() && !keys.includes(ui.listCursor)) {
+        ui.listCursor = first;
+        activate();
+      }
     });
   });
 
@@ -248,6 +277,9 @@
     aria-label="Chats"
     tabindex="0"
     bind:this={listEl}
+    class:kbd={keyboardNav}
+    class:soft={!cursorActive}
+    onpointermove={() => (keyboardNav = false)}
     onkeydown={onKey}
   >
     {#each chats as c, i (chatKey(c.accountId, c.id))}
@@ -372,7 +404,10 @@
   .row { display: flex; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 10px; cursor: default; flex-shrink: 0; }
   .row:hover { background: var(--hover); }
   .row.selected { background: var(--selected); }
-  .row.cursor, .hit.cursor { box-shadow: inset 0 0 0 2px var(--focus); }
+  .row.cursor, .hit.cursor { box-shadow: inset 0 0 0 2px var(--focus); transition: box-shadow var(--duration-slow, .4s) var(--ease, ease); }
+  .list.soft .row.cursor, .list.soft .hit.cursor { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--focus) 35%, transparent); }
+  /* keyboard use: no mouse hover until the mouse moves */
+  .list.kbd .row:hover:not(.selected), .list.kbd .hit:hover { background: none; }
   .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .line1, .line2 { display: flex; align-items: center; gap: 5px; }
   .name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

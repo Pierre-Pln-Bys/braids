@@ -74,6 +74,7 @@ class Store {
   typing = $state<Record<string, Record<string, string>>>({}); // key -> userId -> name
   presence = $state<Record<string, { isOnline: boolean; timeSeen: number }>>({}); // accountId\u0001userId
   avatars = $state<Record<string, string>>({}); // accountId\u0001user or chat id -> image path ('' none)
+  fullAvatars = $state<Record<string, string>>({}); // same keys: full-size pictures, fetched for the viewer
   descriptions = $state<Record<string, string>>({}); // accountId\u0001user or chat id -> group description / bio ('' none)
   setups = $state<Record<string, Setup>>({});
   accountPrompts = $state<Record<string, AuthPrompt>>({}); // runtime prompts per account
@@ -269,6 +270,15 @@ class Store {
 
   // Avatar image of a user or chat; asks braidsd once (batched), the picture
   // arrives later as avatar.updated. '' while unknown or without a picture.
+  // Fetches the full-size picture of a user / chat (avatar.full, or the reply).
+  requestFullAvatar(accountId: string, id: string) {
+    const key = chatKey(accountId, id);
+    if (key in this.fullAvatars) return;
+    api.call<{ path?: string }>('avatars.getFull', { accountId, id })
+      .then((r) => { if (r.path !== undefined) this.fullAvatars[key] = r.path; })
+      .catch(() => {}); // the small picture stays
+  }
+
   avatar(accountId: string, id: string): string {
     const key = chatKey(accountId, id);
     const path = this.avatars[key];
@@ -570,6 +580,10 @@ class Store {
         break;
       case 'avatar.updated':
         this.avatars[chatKey(p.accountId, p.id)] = p.path;
+        delete this.fullAvatars[chatKey(p.accountId, p.id)];
+        break;
+      case 'avatar.full':
+        this.fullAvatars[chatKey(p.accountId, p.id)] = p.path;
         break;
       case 'description.updated':
         this.descriptions[chatKey(p.accountId, p.id)] = p.description;
