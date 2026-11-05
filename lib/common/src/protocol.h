@@ -181,6 +181,7 @@ enum MessageType
   GetDescriptionRequestType, // braids extension
   JoinChatRequestType, // braids extension
   CreateGroupRequestType, // braids extension
+  ReconnectRequestType, // braids extension
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -530,6 +531,15 @@ class ReinitRequest : public RequestMessage
 {
 public:
   virtual MessageType GetMessageType() const { return ReinitRequestType; }
+};
+
+// braids extension: drop the connection and connect again now, e.g. after
+// the computer woke up or the network came back (a connection that died
+// meanwhile is otherwise noticed only by a keep-alive timeout)
+class ReconnectRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return ReconnectRequestType; }
 };
 
 class FindMessageRequest : public RequestMessage

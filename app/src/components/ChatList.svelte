@@ -217,9 +217,9 @@
       {/if}
       <h2>{title}</h2>
       {#if store.syncStatus === 'updating'}
-        <span class="sync" role="status" title="Fetching the latest messages"><LoaderCircle size={13} class="spin" />Updating…</span>
+        <span class="sync" role="status" title={store.syncDetail}><LoaderCircle size={13} class="spin" />{store.syncLabel}</span>
       {:else if store.syncStatus === 'offline'}
-        <span class="sync" role="status" title="No network: chats may be outdated"><WifiOff size={13} />Offline</span>
+        <span class="sync" role="status" title={store.syncDetail}><WifiOff size={13} />Offline</span>
       {/if}
       <button class="icon-btn" aria-label="New chat" title="New chat" onclick={() => (ui.newChatOpen = true)} disabled={!store.accountList.length}>
         <SquarePen size={19} strokeWidth={1.75} />

@@ -787,6 +787,10 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case ReconnectRequestType:
+      LOG_DEBUG("reconnect");
+      break;
+
     case JoinChatRequestType:
       {
         // test groups: https://dummy.example/join/<Name> joins "<Name>"

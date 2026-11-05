@@ -90,6 +90,8 @@ def main():
 
         accounts = d.call("accounts.list")
         check([a["accountId"] for a in accounts] == [account_id], "accounts.list has the account")
+        check(d.call("accounts.reconnect")["count"] == 1, "reconnect all accounts")
+        expect_error(lambda: d.call("accounts.reconnect", {"accountId": "nope"}), 1, "reconnect unknown account")
 
         profile_dir = os.path.join(confdir, "profiles", account_id)
         mode = stat.S_IMODE(os.stat(profile_dir).st_mode)

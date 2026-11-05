@@ -458,11 +458,19 @@ try {
   await page.locator('.chatlist h2', { hasText: 'All chats' }).waitFor();
 
   // loading / outdated indicator: network gone and back
+  const accountItem = page.locator('.sidebar .item', { has: page.locator('.dot') }).first();
+  check(await accountItem.locator('.dot.online').count() === 1 && (await accountItem.getAttribute('title')).includes('Online'),
+    'account shown online (green dot, tooltip)');
+  const reconnects = [];
+  page.on('request', (r) => r.url().includes('/__braids/call') && (r.postData() ?? '').includes('accounts.reconnect') && reconnects.push(r));
   await page.context().setOffline(true);
   await page.locator('.chatlist .sync', { hasText: 'Offline' }).waitFor();
   check(true, 'offline shown');
+  check(await accountItem.locator('.dot.offline').count() === 1 && (await accountItem.getAttribute('title')).includes('no network'),
+    'accounts shown offline at once without network');
   await page.context().setOffline(false);
   await page.locator('.chatlist .sync', { hasText: 'Updating' }).waitFor();
+  check(reconnects.length >= 1, 'network back: the accounts are asked to reconnect');
   await shot('updating');
   await page.locator('.chatlist .sync').waitFor({ state: 'detached', timeout: 15000 });
   check(true, 'updating shown until the accounts caught up');

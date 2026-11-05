@@ -1824,6 +1824,15 @@ void TgChat::Impl::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessa
       }
       break;
 
+    case ReconnectRequestType:
+      {
+        // "forces all network connections to reopen" (tdlib docs)
+        LOG_DEBUG("reconnect");
+        SendQuery(td::td_api::make_object<td::td_api::setNetworkType>(
+                    td::td_api::make_object<td::td_api::networkTypeOther>()), [](Object) { });
+      }
+      break;
+
     case JoinChatRequestType:
       {
         std::shared_ptr<JoinChatRequest> joinChatRequest = std::static_pointer_cast<JoinChatRequest>(p_RequestMessage);

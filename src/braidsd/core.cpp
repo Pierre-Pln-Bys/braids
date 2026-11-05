@@ -27,7 +27,7 @@
 #include "timeutil.h"
 
 // semver of the API; clients must match the major version
-static const std::string s_ApiVersion = "0.9.0";
+static const std::string s_ApiVersion = "0.10.0";
 static const int64_t s_StartTime = TimeUtil::GetCurrentTimeMSec();
 
 static const char* AuthStepToString(AuthStep p_Step)
@@ -292,6 +292,29 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
   {
     AuthCancel(params);
     p_Reply.Ok(json::object());
+  }
+  else if (p_Method == "accounts.reconnect")
+  {
+    // all accounts, or one; after the computer woke up or the network changed
+    const std::string accountId = ParamStrOpt(params, "accountId");
+    if (!accountId.empty() && !m_Accounts.count(accountId))
+    {
+      throw ApiException(ApiErrorUnknownAccount, "unknown account");
+    }
+
+    int count = 0;
+    for (auto& account : m_Accounts)
+    {
+      if (!account.second.isReady || !account.second.protocol) continue;
+
+      if (!accountId.empty() && (account.first != accountId)) continue;
+
+      account.second.protocol->SendRequest(std::make_shared<ReconnectRequest>());
+      ++count;
+    }
+
+    LOG_INFO("reconnect %d accounts", count);
+    p_Reply.Ok(json{ { "count", count } });
   }
   else if (p_Method == "accounts.remove")
   {

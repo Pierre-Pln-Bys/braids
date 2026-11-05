@@ -67,6 +67,11 @@ func CWmUnlink(connId int) int {
 	return WmUnlink(connId)
 }
 
+//export CWmReconnect
+func CWmReconnect(connId int) int {
+	return WmReconnect(connId)
+}
+
 //export CWmLogout
 func CWmLogout(connId int) int {
 	return WmLogout(connId)

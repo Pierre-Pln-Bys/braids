@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.9.0`. The API is JSON-RPC 2.0
+Status: draft, API version `0.10.0`. The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -126,6 +126,7 @@ Methods
 | `accounts.add` | `protocol` | `{setupId}`, then `account.auth` events, see below |
 | `accounts.authInput` | `setupId` or `accountId`, `field`, `value` | `{}`; error 5 if no input for `field` is pending |
 | `accounts.authCancel` | `setupId` or `accountId` | `{}` |
+| `accounts.reconnect` | `accountId`? (all without) | `{count}`: the accounts asked to drop their connection and connect again now (after the computer woke up or the network came back; a dead connection is otherwise noticed only by a keep-alive timeout). Their state goes through `connecting` as usual |
 | `accounts.remove` | `accountId` | `{}`, then `account.removed` |
 | `chats.list` | `accountId`?, `includeArchived`? (false) | `[Chat]` sorted: pinned, then recent activity |
 | `chats.get` | `accountId`, `chatId` | `Chat` |

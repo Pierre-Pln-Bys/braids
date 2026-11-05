@@ -181,6 +181,12 @@ def main():
         notification = d.wait_event("notification", lambda p: p["msgId"] == sent, timeout=30)
         check(notification["chatName"] == "braids test", "notification for new message")
 
+        # reconnect (after sleep / a network change): the sync restarts at once
+        check(d.call("accounts.reconnect", {"accountId": account_id})["count"] == 1, "reconnect requested")
+        after = bob_peer.cmd(f"send {room} still there?")["event"]
+        d.wait_event("message.added", lambda p: p["id"] == after, timeout=20)
+        check(True, "messages arrive after a reconnect")
+
         # read receipt
         d.call("messages.markRead", {"accountId": account_id, "chatId": room, "msgId": sent})
         bob_peer.wait("receipt", lambda m: m["event"] == sent)
