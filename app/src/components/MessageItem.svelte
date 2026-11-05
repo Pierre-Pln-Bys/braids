@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
-  import { copyText, openLink } from '../lib/actions';
+  import { copyText, openLink, personMenu } from '../lib/actions';
   import * as api from '../lib/api';
   import { mediaSrc } from '../lib/media';
   import { firstLink, isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
@@ -193,6 +193,13 @@
     return items;
   }
 
+  // a click on the avatar or name of a sender in a group
+  function openPerson(e: MouseEvent) {
+    e.stopPropagation();
+    const items = personMenu(m.accountId, m.senderId, store.senderName(m));
+    if (items.length) ui.openMenu(e, items);
+  }
+
   function showMenu(e: MouseEvent) {
     e.preventDefault();
     ui.openMenu(e, menuItems());
@@ -230,7 +237,9 @@
 >
   {#if showAvatar}
     {#if last}
-      <Avatar name={store.senderName(m)} id={m.senderId} size={30} owner={m.accountId} />
+      <button class="who" aria-label={`${store.senderName(m)}: options`} onclick={(e) => openPerson(e)}>
+        <Avatar name={store.senderName(m)} id={m.senderId} size={30} owner={m.accountId} />
+      </button>
     {:else}
       <span class="avatar-space"></span>
     {/if}
@@ -247,7 +256,7 @@
       class:sticker={isSticker}
     >
       {#if showName}
-        <div class="sender" style:color={senderColor(m.senderId)}>{store.senderName(m)}</div>
+        <button class="sender" style:color={senderColor(m.senderId)} onclick={(e) => openPerson(e)}>{store.senderName(m)}</button>
       {/if}
 
       {#if m.quoted}
@@ -365,7 +374,9 @@
   .bubble.has-image { padding: 4px 4px 7px; }
   .bubble.has-image .text, .bubble.has-image .sender, .bubble.has-image .quote { margin-left: 7px; margin-right: 7px; }
 
-  .sender { font-size: 13px; font-weight: 650; margin-bottom: 2px; }
+  .sender { font-size: 13px; font-weight: 650; margin-bottom: 2px; display: block; border: 0; background: none; padding: 0; text-align: left; font-family: inherit; cursor: pointer; }
+  .sender:hover { text-decoration: underline; }
+  .who { border: 0; background: none; padding: 0; border-radius: 50%; cursor: pointer; align-self: flex-end; }
   .deleted-text { font-style: italic; }
 
   .quote {

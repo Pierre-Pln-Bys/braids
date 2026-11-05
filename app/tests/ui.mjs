@@ -111,6 +111,29 @@ try {
   await page.getByRole('button', { name: 'Close search' }).click();
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
   check(true, 'the close button focuses the composer too');
+
+  // a sender in a group: profile picture, private chat
+  const michaelMsg = page.locator('.msg:not(.own)', { has: page.locator('.sender', { hasText: /^Michael$/ }) }).first();
+  await michaelMsg.locator('.sender').click();
+  await page.getByRole('menuitem', { name: 'View profile picture' }).click();
+  await page.locator('.lightbox img').waitFor();
+  check(true, 'group sender: profile picture in the viewer');
+  await page.keyboard.press('Escape');
+  await page.locator('.lightbox').waitFor({ state: 'detached' });
+  await michaelMsg.locator('.sender').click();
+  await page.getByRole('menuitem', { name: 'Message Michael privately' }).click();
+  await page.locator('.conv header', { hasText: 'Michael' }).waitFor();
+  check(await page.locator('.conv header', { hasText: 'The Office' }).count() === 0, 'group sender: message privately opens the private chat');
+  // the picture from the info panel
+  await page.keyboard.press('Control+i');
+  await page.getByRole('button', { name: 'View profile picture' }).click();
+  await page.locator('.lightbox img').waitFor();
+  check(true, 'info panel: the profile picture opens in the viewer');
+  await page.keyboard.press('Escape');
+  await page.locator('.lightbox').waitFor({ state: 'detached' });
+  await page.keyboard.press('Control+i');
+  await page.getByRole('option', { name: /The Office/ }).click();
+  await page.locator('.conv header', { hasText: 'The Office' }).waitFor();
   await page.keyboard.press('Control+i');
   await page.locator('.info .member').first().waitFor();
   check(await page.locator('.info .member').count() === 5, 'member list shows 5');
@@ -829,6 +852,7 @@ try {
   await page.locator('main.conv header', { hasText: 'Road trip' }).waitFor();
   check(await page.getByRole('option', { name: /Road trip/ }).count() === 1, 'new group created and opened');
   await shot('new-group');
+  await page.locator('[aria-labelledby=newchat-title]').waitFor({ state: 'detached' }).catch(() => {});
   await page.keyboard.press('Control+,');
 
   // remove account
