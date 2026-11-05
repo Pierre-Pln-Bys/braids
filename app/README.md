@@ -86,7 +86,8 @@ Layout
 - `src/lib/format.ts` — message markup to safe HTML, times, initials, colors.
 - `src/components/` — `Sidebar`, `ChatList`, `Conversation` (+ `MessageItem`,
   `Composer`), `InfoPanel`, `Wizard` / `AuthStep` (login flows), `Settings`,
-  `Welcome`, `NewChat`, `Overlays` (menu, confirm, lightbox, toasts).
+  `ShortcutsDialog` (shortcuts overview w/ Ctrl+/), `Welcome`, `NewChat`,
+  `Overlays` (menu, confirm, lightbox, toasts).
 - `src/styles/tokens.css` — copy of `doc/design/tokens.css`; `app.css` global
   styles. Plain CSS that works in WebKitGTK and WKWebView.
 - `src-tauri/src/daemon.rs` — socket client: start/reconnect braidsd, requests
