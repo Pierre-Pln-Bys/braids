@@ -18,6 +18,9 @@ release workflow publishes the section of a version as its release notes.
 - Shortcuts follow the key's character on any layout: Ctrl+, opens Settings
   also where "," sits on the US M key (it went to Matrix). Non-latin layouts
   keep using the US letter positions.
+- The tray icon could stay empty in GNOME's top bar after braids restarted:
+  every start reused the same icon file name, which the panel kept cached.
+  Each start now uses its own file, and leftovers are removed.
 - Labels no longer break onto two lines in narrow controls ("On top" in
   Settings, "Message a contact" in New chat).
 
