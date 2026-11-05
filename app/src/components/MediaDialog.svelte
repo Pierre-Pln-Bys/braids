@@ -14,6 +14,7 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import { openLink } from '../lib/actions';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { chatKey, fileMime, fileReady, galleryItems, splitKey, store } from '../lib/store.svelte';
   import type { Message } from '../lib/types';
   import { openLightbox, ui } from '../lib/ui.svelte';
@@ -175,7 +176,7 @@
                   <img src={api.fileUrl(m.file!.path)} alt={m.file!.name} loading="lazy" />
                 {:else if ready && video}
                   <!-- svelte-ignore a11y_media_has_caption -->
-                  <video src={`${api.fileUrl(m.file!.path)}#t=0.1`} preload="metadata" muted></video>
+                  <video use:mediaSrc={{ path: m.file!.path, type: m.file!.mimeType, fragment: '#t=0.1', lazy: true }} preload="metadata" muted></video>
                   <span class="vplay"><Play size={16} fill="currentColor" /></span>
                 {:else}
                   <span class="placeholder">

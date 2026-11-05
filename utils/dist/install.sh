@@ -124,6 +124,16 @@ if [ -n "${MISSING}" ]; then
   say "  Arch:          sudo pacman -S webkit2gtk-4.1 libayatana-appindicator sqlite file gst-plugins-good gst-libav"
 fi
 
+# videos (H.264, most MP4s) and AAC audio need GStreamer's libav plugin
+if [ -z "${MISSING}" ] && ! ls /usr/lib/*/gstreamer-1.0/libgstlibav.so /usr/lib64/gstreamer-1.0/libgstlibav.so \
+    /usr/lib/gstreamer-1.0/libgstlibav.so >/dev/null 2>&1; then
+  say ""
+  say "To play videos (MP4), install GStreamer's libav plugin, e.g.:"
+  say "  Debian/Ubuntu: sudo apt install gstreamer1.0-libav"
+  say "  Fedora:        sudo dnf install gstreamer1-plugin-libav"
+  say "  Arch:          sudo pacman -S gst-libav"
+fi
+
 case ":${PATH}:" in
   *":${BIN}:"*) say "Start it from your app menu or with: braids" ;;
   *) say "Start it from your app menu or with: ${BIN}/braids  (${BIN} is not in your PATH)" ;;

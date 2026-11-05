@@ -33,6 +33,18 @@ finish-args:
   # saving attachments ("Download file")
   - --filesystem=xdg-download
 
+# videos: H.264 and AAC through the runtime's FFmpeg extension (GNOME 48 is
+# on freedesktop 24.08)
+add-extensions:
+  org.freedesktop.Platform.ffmpeg-full:
+    directory: lib/ffmpeg
+    version: '24.08'
+    add-ld-path: .
+    autodownload: true
+    autodelete: false
+cleanup-commands:
+  - mkdir -p /app/lib/ffmpeg
+
 modules:
   - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
 

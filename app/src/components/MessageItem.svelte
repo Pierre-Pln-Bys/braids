@@ -12,6 +12,7 @@
   import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
   import { copyText, openLink } from '../lib/actions';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { firstLink, isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
   import { settings } from '../lib/settings.svelte';
   import { chatKey, fileMime, fileReady, galleryItems, store } from '../lib/store.svelte';
@@ -263,7 +264,7 @@
           <!-- a GIF (a video without sound): plays muted and looping in the chat -->
           <button class="image gif" onclick={openFile} aria-label="Open GIF {m.file.name}">
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={api.fileUrl(m.file.path)} autoplay loop muted playsinline onerror={() => (videoFailed = true)}></video>
+            <video use:mediaSrc={{ path: m.file.path, type: m.file.mimeType, lazy: true }} autoplay loop muted playsinline onerror={() => (videoFailed = true)}></video>
             <span class="gif-badge">GIF</span>
           </button>
         {:else if isImage && ready}
@@ -277,7 +278,7 @@
           <!-- the first frame; plays in the viewer -->
           <button class="image video-thumb" onclick={openFile} aria-label="Play video {m.file.name}">
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={`${api.fileUrl(m.file.path)}#t=0.1`} preload="metadata" muted onerror={() => (videoFailed = true)}></video>
+            <video use:mediaSrc={{ path: m.file.path, type: m.file.mimeType, fragment: '#t=0.1', lazy: true }} preload="metadata" muted onerror={() => (videoFailed = true)}></video>
             <span class="play-mark"><Play size={22} fill="currentColor" /></span>
           </button>
         {:else}

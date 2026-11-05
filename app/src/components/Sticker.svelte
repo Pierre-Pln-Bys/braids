@@ -13,6 +13,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { fileReady } from '../lib/store.svelte';
   import type { FileRef } from '../lib/types';
 
@@ -62,7 +63,7 @@
     <div class="lottie" bind:this={box}></div>
   {:else if isVideo}
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video src={api.fileUrl(file.path)} autoplay loop muted playsinline onerror={() => (failed = true)}></video>
+    <video use:mediaSrc={{ path: file.path, type: file.mimeType, lazy: true }} autoplay loop muted playsinline onerror={() => (failed = true)}></video>
   {:else}
     <img src={api.fileUrl(file.path)} alt={emoji || 'Sticker'} loading="lazy" draggable="false" onerror={() => (failed = true)} />
   {/if}
