@@ -9,7 +9,7 @@
   settings. 232 px, collapsible to 60 px; a drawer in the narrow layout.
 -->
 <script lang="ts">
-  import { Archive, CircleAlert, Images, Inbox, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
+  import { Archive, CircleAlert, CircleDot, Images, Inbox, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
   import { tick } from 'svelte';
   import { hint } from '../lib/keybinds.svelte';
   import { settings } from '../lib/settings.svelte';
@@ -41,6 +41,7 @@
 
   const folders = $derived([
     { f: { kind: 'all' } as Filter, label: 'All chats', icon: Inbox },
+    { f: { kind: 'unread' } as Filter, label: 'Unread', icon: CircleDot },
     ...(settings.favorites === 'top' ? [] : [{ f: { kind: 'favorites' } as Filter, label: 'Favorites', icon: Star }]),
   ]);
 

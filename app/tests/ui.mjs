@@ -419,6 +419,21 @@ try {
   await pamRow2.locator('.unread-count').waitFor({ state: 'detached' });
   check(true, 'opening clears the unread mark');
 
+  // Unread folder: only unread chats (and the open one while it is read)
+  await page.keyboard.press('Control+u');
+  await page.locator('.chatlist h2', { hasText: 'Unread' }).waitFor();
+  check(await page.locator('.chatlist .row:not(.selected)').count() >= 1 &&
+    await page.locator('.chatlist .row:not(.selected):not(.unread)').count() === 0, 'Unread folder lists the unread chats');
+  await kevinRow.click();
+  await page.locator('[data-unread-marker]').waitFor();
+  const markerBox = await page.locator('[data-unread-marker]').boundingBox();
+  const scrollBox = await page.locator('.messages').boundingBox();
+  check(markerBox.y >= scrollBox.y && markerBox.y + markerBox.height <= scrollBox.y + scrollBox.height, 'an unread chat opens at the New messages line');
+  await kevinRow.locator('.unread-count').waitFor({ state: 'detached' });
+  check(await kevinRow.count() === 1, 'the open chat stays in Unread once read');
+  await page.keyboard.press('Control+a');
+  await page.locator('.chatlist h2', { hasText: 'All chats' }).waitFor();
+
   // loading / outdated indicator: network gone and back
   await page.context().setOffline(true);
   await page.locator('.chatlist .sync', { hasText: 'Offline' }).waitFor();

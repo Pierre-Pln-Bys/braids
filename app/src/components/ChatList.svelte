@@ -34,6 +34,7 @@
     const f = store.filter;
     if (f.kind === 'archived') return 'Archived';
     if (f.kind === 'favorites') return 'Favorites';
+    if (f.kind === 'unread') return 'Unread';
     if (f.kind === 'account') return store.accountName(f.accountId);
     return 'All chats';
   });
@@ -306,6 +307,8 @@
           {#if !msgQuery}<p>No chats match “{store.search}”.</p>{/if}
         {:else if store.filter.kind === 'archived'}
           <p>No archived chats.</p>
+        {:else if store.filter.kind === 'unread'}
+          <p><b>All caught up.</b><br />No unread chats.</p>
         {:else if store.filter.kind === 'favorites'}
           <p><b>No favorites yet.</b><br />Right-click a chat and choose “Add to favorites”.</p>
         {:else if store.accountList.length}

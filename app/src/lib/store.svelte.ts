@@ -53,7 +53,7 @@ export interface Toast {
   action?: { label: string; run: () => void };
 }
 
-export type Filter = { kind: 'all' } | { kind: 'favorites' } | { kind: 'archived' } | { kind: 'account'; accountId: string };
+export type Filter = { kind: 'all' } | { kind: 'unread' } | { kind: 'favorites' } | { kind: 'archived' } | { kind: 'account'; accountId: string };
 
 class Store {
   // daemon
@@ -116,6 +116,8 @@ class Store {
       .filter((c) => this.accounts[c.accountId])
       .filter((c) => (f.kind === 'archived' ? this.category(c) === 'archived' : this.category(c) !== 'archived'))
       .filter((c) => f.kind !== 'favorites' || this.category(c) === 'favorite')
+      // the open chat stays while it is read
+      .filter((c) => f.kind !== 'unread' || (c.isUnread && !this.eventsOnly(c)) || chatKey(c.accountId, c.id) === this.current)
       .filter((c) => f.kind !== 'account' || c.accountId === f.accountId)
       .filter((c) => !q || this.chatName(c).toLowerCase().includes(q))
       .sort((a, b) => fav(b) - fav(a) || b.lastActivity - a.lastActivity);

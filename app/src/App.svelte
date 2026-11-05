@@ -163,6 +163,10 @@
         store.filter = { kind: 'all' };
         toList(() => ui.list?.focus());
         return true;
+      case 'goUnread':
+        store.filter = { kind: 'unread' };
+        toList(() => ui.list?.focus());
+        return true;
       case 'goFavorites':
         if (settings.favorites === 'top') return false;
         store.filter = { kind: 'favorites' };

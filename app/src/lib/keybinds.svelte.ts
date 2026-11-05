@@ -15,6 +15,7 @@ import { settings } from './settings.svelte';
 
 export type Action =
   | 'goAll'
+  | 'goUnread'
   | 'goFavorites'
   | 'goMatrix'
   | 'goSignal'
@@ -39,6 +40,7 @@ export const GROUPS: { id: ActionGroup; label: string }[] = [
 
 export const ACTIONS: { id: Action; group: ActionGroup; label: string; defaults: string[] }[] = [
   { id: 'goAll', group: 'goto', label: 'All chats', defaults: ['Mod+A'] },
+  { id: 'goUnread', group: 'goto', label: 'Unread', defaults: ['Mod+U'] },
   { id: 'goFavorites', group: 'goto', label: 'Favorites', defaults: ['Mod+B'] },
   { id: 'goMatrix', group: 'goto', label: 'Matrix account', defaults: ['Mod+M'] },
   { id: 'goSignal', group: 'goto', label: 'Signal account', defaults: ['Mod+S'] },

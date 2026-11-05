@@ -66,6 +66,7 @@
   let lastKey = '';
   let lastCount = 0;
   let lastNewestId = '';
+  let openedAt = ''; // the chat just opened, until it is scrolled to its unread messages
 
   const subtitle = $derived.by(() => {
     if (!chat) return '';
@@ -100,12 +101,37 @@
         api.call('members.get', { accountId, chatId }).then((r) => { store.members[key] = r.members; }).catch(() => { store.members[key] = []; });
       }
     }
+    if (opened) openedAt = key;
     tick().then(() => {
       if (!scroller) return;
-      if (opened || (appended && (wasAtBottom || items[count - 1]?.isOutgoing))) scrollToBottom();
+      if (opened && list?.firstUnreadId) scrollToUnread();
+      else if (opened || (appended && (wasAtBottom || items[count - 1]?.isOutgoing))) scrollToBottom();
       fillViewport();
     });
   });
+
+  // an unread chat opens at the "New messages" line (once its messages are
+  // there), a read one at the bottom
+  $effect(() => {
+    const first = list?.firstUnreadId;
+    if (first && openedAt === chatKey) untrack(() => tick().then(scrollToUnread));
+  });
+
+  async function scrollToUnread() {
+    const first = list?.firstUnreadId;
+    if (!scroller || !first || openedAt !== chatKey) return;
+    openedAt = '';
+    const idx = items.findIndex((m) => m.id === first);
+    if (idx >= 0 && idx < startIdx) {
+      startId = items[Math.max(0, idx - 5)].id;
+      await tick();
+    }
+    const marker = scroller.querySelector<HTMLElement>('[data-unread-marker]');
+    if (!marker) return scrollToBottom();
+    // the line near the top, with the message before it in sight
+    scroller.scrollTop += marker.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 64;
+    atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
+  }
 
   function scrollToBottom() {
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
