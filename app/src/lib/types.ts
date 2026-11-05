@@ -63,6 +63,8 @@ export interface Message {
   mentions: Record<string, string>;
   link: string;
   system: string; // group event ("joined", "added Pam"), shown as a line; '' for messages
+  // own message not yet with the messenger (braids' outbox, id "braids-out-…")
+  pending?: 'waiting' | 'sending' | 'failed';
 }
 
 export interface Chat {

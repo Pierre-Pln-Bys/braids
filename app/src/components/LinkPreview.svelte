@@ -19,11 +19,15 @@
 
   $effect(() => {
     const u = url;
+    let current = true; // until the url changes or the preview is gone
     preview = null;
     imageFailed = false;
     api.linkPreview(u).then((p) => {
-      if (u === url) preview = p;
+      if (current) preview = p;
     });
+    return () => {
+      current = false;
+    };
   });
 
   const imageSrc = $derived(!preview?.image ? '' : /^https?:/.test(preview.image) ? preview.image : api.fileUrl(preview.image));

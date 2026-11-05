@@ -9,7 +9,7 @@
   groups, quote, attachment, reactions, hover actions.
 -->
 <script lang="ts">
-  import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
+  import { Check, CheckCheck, Clock, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, RotateCw, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
   import { copyText, openLink, personMenu } from '../lib/actions';
   import * as api from '../lib/api';
   import { mediaSrc } from '../lib/media';
@@ -56,7 +56,7 @@
   const ready = $derived(fileReady(m.file));
   const emojiOnly = $derived(!m.file && !m.quoted && !m.isDeleted && isOnlyEmoji(m.text));
   const showText = $derived(!!m.text && !(isSticker && stickerEmoji));
-  const previewUrl = $derived(settings.linkPreviews && !m.isDeleted && !m.file ? firstLink(m.text) : '');
+  const previewUrl = $derived(settings.linkPreviews && !m.isDeleted && !m.file && !m.pending ? firstLink(m.text) : '');
   const html = $derived(m.isDeleted ? '' : renderText(m.text, m.mentions, account.selfId));
   const reactions = $derived(Object.entries(m.reactions.counts).filter(([, n]) => n > 0));
   const mentionsMe = $derived(!own && (m.hasMention || Object.values(m.mentions).includes(account.selfId)));
@@ -145,6 +145,17 @@
     ui.focusComposer++;
   }
 
+  // ---- outbox: not yet sent ----
+  const pending = $derived(m.pending ?? '');
+
+  function resend() {
+    api.call('messages.resend', { accountId: m.accountId, chatId: m.chatId, msgId: m.id }).catch((e) => store.toastError(e));
+  }
+
+  function discard() {
+    api.call('messages.delete', { accountId: m.accountId, chatId: m.chatId, msgId: m.id }).catch((e) => store.toastError(e));
+  }
+
   async function remove() {
     if (m.isDeleted) {
       await api.call('messages.delete', { accountId: m.accountId, chatId: m.chatId, msgId: m.id }).catch((e) => store.toastError(e));
@@ -183,6 +194,13 @@
   // right-click menu: everything
   export function menuItems(): MenuItem[] {
     if (m.isDeleted) return [{ label: 'Remove', icon: Trash2, danger: true, run: remove }];
+    if (pending) {
+      const items: MenuItem[] = [];
+      if (pending === 'failed') items.push({ label: 'Send again', icon: RotateCw, run: resend });
+      if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => copyText(m.text, 'Copied') });
+      items.push({ label: pending === 'failed' ? 'Delete' : 'Cancel sending', icon: Trash2, danger: true, run: discard });
+      return items;
+    }
     const items: MenuItem[] = [{ label: 'Reply', icon: Reply, run: reply }];
     if (editState.show) items.push({ label: 'Edit', icon: Pencil, run: edit, disabled: !editState.ok, hint: editState.reason });
     if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => copyText(m.text, 'Copied') });
@@ -228,6 +246,8 @@
   class:first
   class:last
   class:highlight={ui.highlightId === m.id}
+  class:pending={!!pending}
+  class:failed={pending === 'failed'}
   data-msg-id={m.id}
   oncontextmenu={showMenu}
   onmouseenter={() => (ui.hoverMessage = m)}
@@ -320,7 +340,13 @@
         {#if m.isPinned}<Pin size={11} />{/if}
         {#if m.isEdited && !m.isDeleted}<span>edited</span>{/if}
         <span>{timeOfDay(m.time)}</span>
-        {#if own && !m.isDeleted}
+        {#if pending === 'sending'}
+          <span class="ticks" title="Sending…" aria-label="Sending"><LoaderCircle size={13} class="spin" /></span>
+        {:else if pending === 'waiting'}
+          <span class="ticks" title="Waiting for the connection; sent when the account is back online" aria-label="Waiting for the connection"><Clock size={13} /></span>
+        {:else if pending === 'failed'}
+          <span class="ticks failed-mark" title="Not sent" aria-label="Not sent"><TriangleAlert size={13} /></span>
+        {:else if own && !m.isDeleted}
           <span class="ticks" class:read={m.isRead} title={m.isRead ? 'Read' : 'Sent'} aria-label={m.isRead ? 'Read' : 'Sent'}>
             {#if m.isRead}<CheckCheck size={14} />{:else}<Check size={14} />{/if}
           </span>
@@ -338,7 +364,15 @@
       </div>
     {/if}
 
-    {#if !m.isDeleted}
+    {#if pending === 'failed'}
+      <div class="not-sent" role="alert">
+        <TriangleAlert size={13} />Not sent
+        <button class="link-btn" onclick={resend}>Send again</button>
+        <button class="link-btn" onclick={discard}>Delete</button>
+      </div>
+    {/if}
+
+    {#if !m.isDeleted && !pending}
       <div class="actions" class:row={lines <= 1} role="toolbar" aria-label="Message actions" aria-orientation={lines <= 1 ? 'horizontal' : 'vertical'}>
         <button class="icon-btn sm" bind:this={reactBtn} onclick={() => onReact(m, reactBtn!)} title="React" aria-label="React"><SmilePlus size={17} /></button>
         <button class="icon-btn sm" onclick={reply} title="Reply" aria-label="Reply"><Reply size={17} /></button>
@@ -443,4 +477,10 @@
   .msg:hover .actions, .actions:focus-within { display: flex; }
   .actions.row { flex-direction: row; }
   .actions .danger:hover { color: var(--danger); }
+  .msg.pending .bubble { opacity: 0.6; }
+  .msg.failed .bubble { opacity: 0.75; box-shadow: inset 0 0 0 1px var(--danger); }
+  .failed-mark { color: var(--danger); }
+  .not-sent { display: flex; align-items: center; gap: 6px; justify-content: flex-end; font-size: 12px; color: var(--danger); margin-top: 3px; }
+  .link-btn { border: 0; background: none; padding: 0 2px; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .link-btn:hover { text-decoration: underline; }
 </style>

@@ -53,8 +53,14 @@ public:
   json GetContacts(const std::string& p_AccountId);
   void GetMessages(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_FromMsgId,
                    int p_Limit, const Reply& p_Reply);
-  void SendMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
-                   const std::string& p_QuotedId, const std::string& p_FilePath, bool p_IsVoice = false);
+  // queued in the account's outbox and shown at once (pending); sent now or
+  // when the account is online; returns the message's local id
+  std::string SendMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
+                          const std::string& p_QuotedId, const std::string& p_FilePath, bool p_IsVoice = false);
+  // a failed outbox message sent again
+  void ResendMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_MsgId);
+  // the account came online / went offline (sends the waiting messages)
+  void SetAccountOnline(const std::string& p_AccountId, bool p_Online);
   void EditMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_MsgId,
                    const std::string& p_Text);
   void DeleteMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_MsgId);
@@ -100,6 +106,22 @@ private:
     bool previewRequested = false;
   };
 
+  // a sent message until the messenger has it: waiting (account not
+  // online), sending (request out), sent (confirmed, until its echo
+  // arrives), failed
+  struct OutboxEntry
+  {
+    std::string id; // local, "braids-out-..."
+    std::string chatId;
+    std::string text;
+    std::string quotedId;
+    std::string filePath;
+    bool isVoice = false;
+    int64_t time = 0;
+    std::string state;
+    int64_t sentAt = 0;
+  };
+
   struct AccountState
   {
     std::unordered_map<std::string, ChatInfo> chatInfos;
@@ -123,6 +145,8 @@ private:
     // messages are not loaded
     std::map<std::string, int> cachedUnread;
     int64_t connectTime = 0;
+    std::vector<OutboxEntry> outbox; // oldest first (kept in <profile>/braids-outbox.json)
+    bool online = false;
   };
 
   struct PendingReply
@@ -172,6 +196,15 @@ private:
   bool IsMuted(const AccountState& p_Account, const ChatInfo& p_ChatInfo) const;
   void LoadAccountState(const std::string& p_AccountId);
   void SaveAccountState(const std::string& p_AccountId);
+
+  // outbox
+  void DispatchOutbox(const std::string& p_AccountId, OutboxEntry& p_Entry);
+  void OnSendResult(const std::string& p_AccountId, const std::string& p_LocalId, bool p_Success);
+  void MatchOutboxEcho(const std::string& p_AccountId, const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
+  void RemoveOutboxEntry(const std::string& p_AccountId, const std::string& p_LocalId);
+  json OutboxEntryToJson(const std::string& p_AccountId, const OutboxEntry& p_Entry);
+  void LoadOutbox(const std::string& p_AccountId);
+  void SaveOutbox(const std::string& p_AccountId);
 
   void MarkChatDirty(const std::string& p_AccountId, const std::string& p_ChatId);
   void FlushDirtyChats();

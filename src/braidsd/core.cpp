@@ -361,9 +361,15 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
   }
   else if (p_Method == "messages.send")
   {
-    m_ChatModel->SendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
-                             ParamStrOpt(params, "text"), ParamStrOpt(params, "quotedId"),
-                             ParamStrOpt(params, "filePath"), ParamBool(params, "isVoice", false));
+    const std::string msgId =
+      m_ChatModel->SendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
+                               ParamStrOpt(params, "text"), ParamStrOpt(params, "quotedId"),
+                               ParamStrOpt(params, "filePath"), ParamBool(params, "isVoice", false));
+    p_Reply.Ok(json{ { "msgId", msgId } });
+  }
+  else if (p_Method == "messages.resend")
+  {
+    m_ChatModel->ResendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"), ParamStr(params, "msgId"));
     p_Reply.Ok(json::object());
   }
   else if (p_Method == "messages.edit")
@@ -664,6 +670,7 @@ void Core::OnSetupDone(const std::string& p_SetupId, bool p_Success, const std::
 
     const bool isOnline = ((Status::GetProfile(p_ProfileId) & Status::FlagOnline) != 0);
     account.state = isOnline ? "online" : "connecting";
+    m_ChatModel->SetAccountOnline(p_ProfileId, isOnline);
     EmitDirect("account.added", json{ { "setupId", p_SetupId }, { "account", AccountToJson(account) } });
     return;
   }
@@ -880,6 +887,10 @@ void Core::SetAccountState(Account& p_Account, const std::string& p_State, const
 
   p_Account.state = p_State;
   p_Account.error = p_Error;
+  if (m_ChatModel)
+  {
+    m_ChatModel->SetAccountOnline(p_Account.id, p_State == "online");
+  }
   Emit("account.state", json{ { "accountId", p_Account.id }, { "state", p_State }, { "error", p_Error },
                               { "syncing", p_Account.syncing } });
 }

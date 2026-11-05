@@ -11,6 +11,7 @@
 #include <tuple>
 #include <iostream>
 #include <map>
+#include <thread>
 
 #include <sys/stat.h>
 
@@ -526,6 +527,36 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
           std::static_pointer_cast<SendMessageRequest>(p_RequestMessage);
         const std::string& chatId = sendMessageRequest->chatId;
         ChatMessage chatMessage = sendMessageRequest->chatMessage;
+
+        // braids tests: "/offline <seconds>" takes the account offline for a
+        // while (sending fails meanwhile), like a dropped connection
+        static int64_t s_OfflineUntil = 0;
+        const bool goOffline = StrUtil::StartsWith(chatMessage.text, "/offline ");
+        if (goOffline)
+        {
+          const int seconds = std::max(1, std::atoi(chatMessage.text.substr(9).c_str()));
+          s_OfflineUntil = TimeUtil::GetCurrentTimeMSec() + (seconds * 1000);
+          Status::Clear(m_ProfileId, Status::FlagOnline);
+          const std::string profileId = m_ProfileId;
+          std::thread([profileId, seconds]()
+          {
+            std::this_thread::sleep_for(std::chrono::seconds(seconds));
+            Status::Set(profileId, Status::FlagOnline);
+          }).detach();
+        }
+
+        // braids tests: "/fail ..." is refused by the "server"
+        if ((!goOffline && (TimeUtil::GetCurrentTimeMSec() < s_OfflineUntil)) ||
+            StrUtil::StartsWith(chatMessage.text, "/fail"))
+        {
+          std::shared_ptr<SendMessageNotify> sendMessageNotify = std::make_shared<SendMessageNotify>(m_ProfileId);
+          sendMessageNotify->success = false;
+          sendMessageNotify->chatId = chatId;
+          sendMessageNotify->chatMessage = chatMessage;
+          m_MessageHandler(sendMessageNotify);
+          break;
+        }
+
         // unique also for messages sent within the same millisecond
         static int64_t s_LastSent = 0;
         const int64_t now = std::max(TimeUtil::GetCurrentTimeMSec(), s_LastSent + 1);
@@ -550,6 +581,7 @@ void DuChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         sendMessageNotify->success = true;
         sendMessageNotify->chatId = chatId;
         sendMessageNotify->chatMessage = chatMessage;
+        sendMessageNotify->chatMessage.id = sendMessageRequest->chatMessage.id; // as the real protocols do
         m_MessageHandler(sendMessageNotify);
 
         // echo, as real protocols do

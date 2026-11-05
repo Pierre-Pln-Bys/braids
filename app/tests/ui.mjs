@@ -740,6 +740,31 @@ try {
   check((await composer.inputValue()).includes('🚀'), 'emoji picker search inserts the emoji');
   await composer.fill('');
 
+  // outbox: a message sent while offline waits (greyed, clock), then goes out
+  await composer.fill('/offline 3');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  await composer.fill('see you after the outage');
+  await page.keyboard.press('Enter');
+  const waitingMsg = page.locator('.msg.pending', { hasText: 'see you after the outage' });
+  await waitingMsg.waitFor();
+  check(await waitingMsg.getByLabel('Waiting for the connection').count() === 1, 'offline: the message stays, greyed, waiting');
+  await waitingMsg.waitFor({ state: 'detached', timeout: 15000 });
+  await page.locator('.msg.own:not(.pending)', { hasText: 'see you after the outage' }).waitFor();
+  check(true, 'back online: the message is sent');
+  // refused: "Not sent" with Send again and Delete
+  await composer.fill('/fail this one');
+  await page.keyboard.press('Enter');
+  const failedMsg = page.locator('.msg.failed', { hasText: '/fail this one' });
+  await failedMsg.waitFor();
+  check(await failedMsg.locator('.not-sent', { hasText: 'Not sent' }).count() === 1, 'a refused message is marked Not sent');
+  await failedMsg.getByRole('button', { name: 'Send again' }).click();
+  await failedMsg.locator('.not-sent').waitFor();
+  check(true, 'send again (refused again)');
+  await failedMsg.getByRole('button', { name: 'Delete' }).click();
+  await failedMsg.waitFor({ state: 'detached' });
+  check(true, 'a failed message can be deleted');
+
   // link preview card
   await page.route('**/__braids/preview?*', (route) => route.fulfill({ json: { url: 'https://example.com/paper', title: 'Paper sales up 12%', description: 'Scranton branch leads the quarter.', siteName: 'Example News', image: '' } }));
   await composer.fill('read this https://example.com/paper');

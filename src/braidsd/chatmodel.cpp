@@ -12,6 +12,8 @@
 #include <map>
 #include <tuple>
 
+#include <sys/stat.h>
+
 #include "fileutil.h"
 #include "log.h"
 #include "messagecache.h"
@@ -224,6 +226,7 @@ void ChatModel::AddAccount(const std::string& p_AccountId)
   if (isNew)
   {
     LoadAccountState(p_AccountId);
+    LoadOutbox(p_AccountId);
   }
 }
 
@@ -663,7 +666,12 @@ void ChatModel::OnServiceMessage(std::shared_ptr<ServiceMessage> p_ServiceMessag
         std::shared_ptr<SendMessageNotify> sendMessageNotify =
           std::static_pointer_cast<SendMessageNotify>(p_ServiceMessage);
         LOG_TRACE(sendMessageNotify->success ? "send ok" : "send failed");
-        if (!sendMessageNotify->success)
+        const std::string& localId = sendMessageNotify->chatMessage.id;
+        if (StrUtil::StartsWith(localId, "braids-out-"))
+        {
+          OnSendResult(accountId, localId, sendMessageNotify->success);
+        }
+        else if (!sendMessageNotify->success)
         {
           Emit("message.sendFailed", json{ { "accountId", accountId }, { "chatId", sendMessageNotify->chatId } });
         }
@@ -1132,6 +1140,11 @@ void ChatModel::OnNewMessages(const std::string& p_AccountId, std::shared_ptr<Ne
         Emit("message.added", MessageToJson(p_AccountId, chatId, chatMessage));
       }
 
+      if (chatMessage.isOutgoing && !p_Notify->cached && !account.outbox.empty())
+      {
+        MatchOutboxEcho(p_AccountId, chatId, chatMessage);
+      }
+
       if (!p_Notify->cached)
       {
         MaybeNotify(p_AccountId, chatId, chatMessage);
@@ -1308,6 +1321,26 @@ void ChatModel::ResolvePending(PendingType p_Type, const std::string& p_AccountI
 
 void ChatModel::ProcessTimers(int64_t p_NowMs)
 {
+  // confirmed messages whose copy did not come back (or not recognisably):
+  // the messenger has them, so no longer shown as pending
+  static const int64_t s_SentEchoTimeoutMs = 10000;
+  std::vector<std::pair<std::string, std::string>> sentDone;
+  for (const auto& account : m_Accounts)
+  {
+    for (const OutboxEntry& entry : account.second.outbox)
+    {
+      if ((entry.state == "sent") && (p_NowMs - entry.sentAt > s_SentEchoTimeoutMs))
+      {
+        sentDone.push_back(std::make_pair(account.first, entry.id));
+      }
+    }
+  }
+
+  for (const auto& done : sentDone)
+  {
+    RemoveOutboxEntry(done.first, done.second);
+  }
+
   std::vector<PendingReply> expired;
   std::vector<PendingType> expiredTypes;
   for (auto it = m_Pending.begin(); it != m_Pending.end(); ++it)
@@ -1381,6 +1414,18 @@ json ChatModel::MessagesPage(const std::string& p_AccountId, const std::string& 
   for (const ChatMessage* chatMessage : older)
   {
     list.push_back(MessageToJson(p_AccountId, p_ChatId, *chatMessage));
+  }
+
+  // the newest page: with the messages still in the outbox
+  if (p_FromMsgId.empty())
+  {
+    for (const OutboxEntry& entry : m_Accounts[p_AccountId].outbox)
+    {
+      if (entry.chatId == p_ChatId)
+      {
+        list.push_back(OutboxEntryToJson(p_AccountId, entry));
+      }
+    }
   }
 
   return json{ { "accountId", p_AccountId }, { "chatId", p_ChatId }, { "fromMsgId", p_FromMsgId },
@@ -1648,53 +1693,341 @@ void ChatModel::GetMessages(const std::string& p_AccountId, const std::string& p
   SendProtocolRequest(p_AccountId, getMessagesRequest);
 }
 
-void ChatModel::SendMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_Text,
-                            const std::string& p_QuotedId, const std::string& p_FilePath, bool p_IsVoice)
+std::string ChatModel::SendMessage(const std::string& p_AccountId, const std::string& p_ChatId,
+                                   const std::string& p_Text, const std::string& p_QuotedId,
+                                   const std::string& p_FilePath, bool p_IsVoice)
 {
-  GetAccountOrThrow(p_AccountId);
+  AccountState& account = GetAccountOrThrow(p_AccountId);
   if (p_Text.empty() && p_FilePath.empty())
   {
     throw ApiException(ApiErrorInvalidParams, "text or filePath required");
   }
 
-  std::shared_ptr<SendMessageRequest> sendMessageRequest = std::make_shared<SendMessageRequest>();
-  sendMessageRequest->chatId = p_ChatId;
-  sendMessageRequest->chatMessage.text = p_Text;
-  sendMessageRequest->chatMessage.mentions = ParseMentions(p_AccountId, p_ChatId, p_Text);
-
   if (!p_QuotedId.empty())
   {
-    const ChatMessage& quoted = GetMessageOrThrow(p_AccountId, p_ChatId, p_QuotedId);
-    sendMessageRequest->chatMessage.quotedId = quoted.id;
-    sendMessageRequest->chatMessage.quotedText = quoted.text;
-    sendMessageRequest->chatMessage.quotedSender = quoted.senderId;
+    GetMessageOrThrow(p_AccountId, p_ChatId, p_QuotedId);
   }
 
-  if (!p_FilePath.empty())
+  if (!p_FilePath.empty() && ((p_FilePath.at(0) != '/') || !FileUtil::Exists(p_FilePath)))
   {
-    if ((p_FilePath.at(0) != '/') || !FileUtil::Exists(p_FilePath))
+    throw ApiException(ApiErrorInvalidParams, "filePath must be an existing absolute path");
+  }
+
+  if (p_IsVoice && p_FilePath.empty())
+  {
+    throw ApiException(ApiErrorInvalidParams, "isVoice needs a filePath");
+  }
+
+  // unique and ordered also within one millisecond
+  static int64_t s_LastTime = 0;
+  const int64_t now = std::max(TimeUtil::GetCurrentTimeMSec(), s_LastTime + 1);
+  s_LastTime = now;
+
+  OutboxEntry entry;
+  entry.id = "braids-out-" + std::to_string(now);
+  entry.chatId = p_ChatId;
+  entry.text = p_Text;
+  entry.quotedId = p_QuotedId;
+  entry.filePath = p_FilePath;
+  entry.isVoice = p_IsVoice;
+  entry.time = now;
+  entry.state = "waiting";
+  account.outbox.push_back(entry);
+  Emit("message.added", OutboxEntryToJson(p_AccountId, entry));
+
+  if (account.online)
+  {
+    DispatchOutbox(p_AccountId, account.outbox.back());
+  }
+
+  SaveOutbox(p_AccountId);
+  return entry.id;
+}
+
+void ChatModel::ResendMessage(const std::string& p_AccountId, const std::string& p_ChatId,
+                              const std::string& p_MsgId)
+{
+  AccountState& account = GetAccountOrThrow(p_AccountId);
+  for (OutboxEntry& entry : account.outbox)
+  {
+    if ((entry.id != p_MsgId) || (entry.chatId != p_ChatId)) continue;
+
+    if (entry.state != "failed")
     {
-      throw ApiException(ApiErrorInvalidParams, "filePath must be an existing absolute path");
+      throw ApiException(ApiErrorInvalidParams, "message is not failed");
     }
 
+    entry.state = "waiting";
+    Emit("message.updated", OutboxEntryToJson(p_AccountId, entry));
+    if (account.online)
+    {
+      DispatchOutbox(p_AccountId, entry);
+    }
+
+    SaveOutbox(p_AccountId);
+    return;
+  }
+
+  throw ApiException(ApiErrorUnknownMessage, "unknown message");
+}
+
+void ChatModel::SetAccountOnline(const std::string& p_AccountId, bool p_Online)
+{
+  auto ait = m_Accounts.find(p_AccountId);
+  if (ait == m_Accounts.end()) return;
+
+  AccountState& account = ait->second;
+  const bool wasOnline = account.online;
+  account.online = p_Online;
+  if (!p_Online || wasOnline) return;
+
+  bool sent = false;
+  for (OutboxEntry& entry : account.outbox)
+  {
+    if (entry.state == "waiting")
+    {
+      DispatchOutbox(p_AccountId, entry);
+      sent = true;
+    }
+  }
+
+  if (sent)
+  {
+    SaveOutbox(p_AccountId);
+  }
+}
+
+void ChatModel::DispatchOutbox(const std::string& p_AccountId, OutboxEntry& p_Entry)
+{
+  if (!p_Entry.filePath.empty() && !FileUtil::Exists(p_Entry.filePath))
+  {
+    // a temporary file (recording, pasted image) gone since, e.g. after a restart
+    p_Entry.state = "failed";
+    Emit("message.updated", OutboxEntryToJson(p_AccountId, p_Entry));
+    return;
+  }
+
+  std::shared_ptr<SendMessageRequest> sendMessageRequest = std::make_shared<SendMessageRequest>();
+  sendMessageRequest->chatId = p_Entry.chatId;
+  // the local id comes back in SendMessageNotify (protocols do not use it)
+  sendMessageRequest->chatMessage.id = p_Entry.id;
+  sendMessageRequest->chatMessage.text = p_Entry.text;
+  sendMessageRequest->chatMessage.mentions = ParseMentions(p_AccountId, p_Entry.chatId, p_Entry.text);
+
+  if (!p_Entry.quotedId.empty())
+  {
+    const ChatMessage* quoted = FindMessage(p_AccountId, p_Entry.chatId, p_Entry.quotedId);
+    sendMessageRequest->chatMessage.quotedId = p_Entry.quotedId;
+    if (quoted != nullptr)
+    {
+      sendMessageRequest->chatMessage.quotedText = quoted->text;
+      sendMessageRequest->chatMessage.quotedSender = quoted->senderId;
+    }
+  }
+
+  if (!p_Entry.filePath.empty())
+  {
     FileInfo fileInfo;
-    fileInfo.filePath = p_FilePath;
-    fileInfo.fileType = FileUtil::GetMimeType(p_FilePath);
+    fileInfo.filePath = p_Entry.filePath;
+    fileInfo.fileType = FileUtil::GetMimeType(p_Entry.filePath);
     // a voice message is audio, also in a container sniffed as video (webm)
-    if (p_IsVoice && StrUtil::StartsWith(fileInfo.fileType, "video/"))
+    if (p_Entry.isVoice && StrUtil::StartsWith(fileInfo.fileType, "video/"))
     {
       fileInfo.fileType = "audio/" + fileInfo.fileType.substr(6);
     }
 
     sendMessageRequest->chatMessage.fileInfo = ProtocolUtil::FileInfoToHex(fileInfo);
-    sendMessageRequest->isVoice = p_IsVoice;
+    sendMessageRequest->isVoice = p_Entry.isVoice;
   }
-  else if (p_IsVoice)
+
+  const bool changed = (p_Entry.state != "sending");
+  p_Entry.state = "sending";
+  if (changed)
   {
-    throw ApiException(ApiErrorInvalidParams, "isVoice needs a filePath");
+    Emit("message.updated", OutboxEntryToJson(p_AccountId, p_Entry));
   }
 
   SendProtocolRequest(p_AccountId, sendMessageRequest);
+}
+
+void ChatModel::OnSendResult(const std::string& p_AccountId, const std::string& p_LocalId, bool p_Success)
+{
+  AccountState& account = m_Accounts[p_AccountId];
+  for (OutboxEntry& entry : account.outbox)
+  {
+    if (entry.id != p_LocalId) continue;
+
+    if (p_Success)
+    {
+      // shown until the messenger's own copy of the message arrives
+      entry.state = "sent";
+      entry.sentAt = TimeUtil::GetCurrentTimeMSec();
+    }
+    else
+    {
+      // offline by now: sent again when the account is back
+      entry.state = account.online ? "failed" : "waiting";
+      Emit("message.updated", OutboxEntryToJson(p_AccountId, entry));
+    }
+
+    SaveOutbox(p_AccountId);
+    return;
+  }
+}
+
+// An own message from the messenger replaces the outbox message it is: the
+// one with the same text (or file name), else the oldest confirmed one.
+void ChatModel::MatchOutboxEcho(const std::string& p_AccountId, const std::string& p_ChatId,
+                                const ChatMessage& p_ChatMessage)
+{
+  AccountState& account = m_Accounts[p_AccountId];
+  std::string fileName;
+  if (!p_ChatMessage.fileInfo.empty())
+  {
+    fileName = FileUtil::BaseName(ProtocolUtil::FileInfoFromHex(p_ChatMessage.fileInfo).filePath);
+  }
+
+  const OutboxEntry* match = nullptr;
+  const OutboxEntry* oldestSent = nullptr;
+  for (const OutboxEntry& entry : account.outbox)
+  {
+    if ((entry.chatId != p_ChatId) || ((entry.state != "sending") && (entry.state != "sent"))) continue;
+
+    const bool sameText = !entry.text.empty() && (entry.text == p_ChatMessage.text);
+    const bool sameFile = !entry.filePath.empty() && !fileName.empty() && (FileUtil::BaseName(entry.filePath) == fileName);
+    if (sameText || (entry.text.empty() && sameFile))
+    {
+      match = &entry;
+      break;
+    }
+
+    if ((entry.state == "sent") && (oldestSent == nullptr))
+    {
+      oldestSent = &entry;
+    }
+  }
+
+  if (match == nullptr)
+  {
+    match = oldestSent;
+  }
+
+  if (match != nullptr)
+  {
+    RemoveOutboxEntry(p_AccountId, match->id);
+  }
+}
+
+void ChatModel::RemoveOutboxEntry(const std::string& p_AccountId, const std::string& p_LocalId)
+{
+  const std::string localId = p_LocalId; // may refer to the entry erased below
+  AccountState& account = m_Accounts[p_AccountId];
+  for (auto it = account.outbox.begin(); it != account.outbox.end(); ++it)
+  {
+    if (it->id != localId) continue;
+
+    const std::string chatId = it->chatId;
+    account.outbox.erase(it);
+    Emit("message.removed", json{ { "accountId", p_AccountId }, { "chatId", chatId }, { "msgId", localId } });
+    SaveOutbox(p_AccountId);
+    return;
+  }
+}
+
+json ChatModel::OutboxEntryToJson(const std::string& p_AccountId, const OutboxEntry& p_Entry)
+{
+  ChatMessage chatMessage;
+  chatMessage.id = p_Entry.id;
+  chatMessage.text = p_Entry.text;
+  chatMessage.quotedId = p_Entry.quotedId;
+  chatMessage.timeSent = p_Entry.time;
+  chatMessage.isOutgoing = true;
+  chatMessage.isRead = false;
+  if (!p_Entry.filePath.empty())
+  {
+    FileInfo fileInfo;
+    fileInfo.filePath = p_Entry.filePath;
+    fileInfo.fileType = FileUtil::GetMimeType(p_Entry.filePath);
+    fileInfo.fileStatus = FileStatusDownloaded;
+    chatMessage.fileInfo = ProtocolUtil::FileInfoToHex(fileInfo);
+  }
+
+  json message = MessageToJson(p_AccountId, p_Entry.chatId, chatMessage);
+  // "sending" also while confirmed but not yet back from the messenger
+  message["pending"] = (p_Entry.state == "sent") ? "sending" : p_Entry.state;
+  return message;
+}
+
+void ChatModel::LoadOutbox(const std::string& p_AccountId)
+{
+  if (m_ProfilesDir.empty()) return;
+
+  const std::string path = m_ProfilesDir + "/" + p_AccountId + "/braids-outbox.json";
+  if (!FileUtil::Exists(path)) return;
+
+  json state = json::parse(FileUtil::ReadFile(path), nullptr, false);
+  if (!state.is_object() || !state.contains("outbox") || !state["outbox"].is_array()) return;
+
+  AccountState& account = m_Accounts[p_AccountId];
+  for (const auto& item : state["outbox"])
+  {
+    if (!item.is_object() || !item.contains("id") || !item.contains("chatId")) continue;
+
+    OutboxEntry entry;
+    entry.id = item.value("id", "");
+    entry.chatId = item.value("chatId", "");
+    entry.text = item.value("text", "");
+    entry.quotedId = item.value("quotedId", "");
+    entry.filePath = item.value("filePath", "");
+    entry.isVoice = item.value("isVoice", false);
+    entry.time = item.value("time", (int64_t)0);
+    entry.state = item.value("state", "failed");
+    // a message that was on its way when braids stopped may have arrived:
+    // not sent again by itself
+    if ((entry.state != "waiting") && (entry.state != "failed"))
+    {
+      entry.state = "failed";
+    }
+
+    if (!entry.id.empty() && !entry.chatId.empty())
+    {
+      account.outbox.push_back(entry);
+    }
+  }
+}
+
+void ChatModel::SaveOutbox(const std::string& p_AccountId)
+{
+  if (m_ProfilesDir.empty()) return;
+
+  const std::string dir = m_ProfilesDir + "/" + p_AccountId;
+  if (!FileUtil::IsDir(dir)) return;
+
+  // message texts: the file is readable by the user only, like the message cache
+  json outbox = json::array();
+  for (const OutboxEntry& entry : m_Accounts[p_AccountId].outbox)
+  {
+    if (entry.state == "sent") continue;
+
+    outbox.push_back(json{ { "id", entry.id }, { "chatId", entry.chatId }, { "text", entry.text },
+                           { "quotedId", entry.quotedId }, { "filePath", entry.filePath },
+                           { "isVoice", entry.isVoice }, { "time", entry.time }, { "state", entry.state } });
+  }
+
+  const std::string path = dir + "/braids-outbox.json";
+  if (outbox.empty())
+  {
+    if (FileUtil::Exists(path))
+    {
+      FileUtil::RmFile(path);
+    }
+
+    return;
+  }
+
+  FileUtil::WriteFile(path + ".tmp", json{ { "outbox", outbox } }.dump(2));
+  chmod((path + ".tmp").c_str(), S_IRUSR | S_IWUSR);
+  FileUtil::Move(path + ".tmp", path);
 }
 
 void ChatModel::EditMessage(const std::string& p_AccountId, const std::string& p_ChatId, const std::string& p_MsgId,
@@ -1758,6 +2091,22 @@ void ChatModel::EditMessage(const std::string& p_AccountId, const std::string& p
 void ChatModel::DeleteMessage(const std::string& p_AccountId, const std::string& p_ChatId,
                               const std::string& p_MsgId)
 {
+  if (StrUtil::StartsWith(p_MsgId, "braids-out-"))
+  {
+    // not sent (yet): only braids has it
+    AccountState& account = GetAccountOrThrow(p_AccountId);
+    for (const OutboxEntry& entry : account.outbox)
+    {
+      if ((entry.id == p_MsgId) && (entry.chatId == p_ChatId))
+      {
+        RemoveOutboxEntry(p_AccountId, p_MsgId);
+        return;
+      }
+    }
+
+    throw ApiException(ApiErrorUnknownMessage, "unknown message");
+  }
+
   const ChatMessage& chatMessage = GetMessageOrThrow(p_AccountId, p_ChatId, p_MsgId);
   if (chatMessage.isDeleted)
   {

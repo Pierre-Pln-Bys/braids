@@ -84,7 +84,16 @@ muted chat); with neither known, `unreadCount` is 1. `isUnread` is also true for
      "file": {"id", "path", "name", "mimeType", "kind": "" | "sticker" | "gif",
               "status": "none|notDownloaded|downloading|downloaded|failed"} | null,
      "reactions": {"counts": {emoji: n}, "senders": {userId: emoji}, "own": emoji},
-     "mentions": {displayName: userId}, "link", "system"}
+     "mentions": {displayName: userId}, "link", "system",
+     "pending"?: "waiting" | "sending" | "failed"}
+
+`pending` is set on own messages braidsd has not handed to the messenger
+yet (its outbox; ids start with `braids-out-`): `waiting` while the account
+is not online (sent when it is back, also after a restart), `sending` until
+the messenger's own copy arrives (then `message.removed` for the pending one
+and `message.added` for the real one), `failed` when the messenger refused
+it (`messages.resend` or `messages.delete`). The outbox is kept in
+`<profile>/braids-outbox.json` (readable by the user only).
 
 `system` is non-empty for group events (someone joined, left, was added,
 renamed the group, ...): a phrase to follow the sender's name, e.g.
@@ -136,9 +145,10 @@ Methods
 | `messages.search` | `text` (case-insensitive for ASCII letters), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`?, `limit`? (40, max 200) | `{items: [Message] newest first, nextBefore}` like `media.list`; group events are left out |
 | `members.get` | `accountId`, `chatId` | `{accountId, chatId, members: [Contact]}` (async) |
 | `messages.get` | `accountId`, `chatId`, `fromMsgId`? (latest), `limit`? (30) | `{accountId, chatId, fromMsgId, messages: [Message] oldest first, timedOut}` (async, from cache or server) |
-| `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute), `isVoice`? (false; the file, Ogg/Opus, is sent as a voice note: WhatsApp PTT, Telegram voice note, Signal voice message, Matrix MSC3245 voice) | `{}`; the message arrives as `message.added` |
+| `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute), `isVoice`? (false; the file, Ogg/Opus, is sent as a voice note: WhatsApp PTT, Telegram voice note, Signal voice message, Matrix MSC3245 voice) | `{msgId}`: the local id of the pending message, which arrives at once as `message.added` with `pending` (see Message) |
+| `messages.resend` | `accountId`, `chatId`, `msgId` (a `failed` pending message) | `{}`, then `message.updated` |
 | `messages.edit` | `accountId`, `chatId`, `msgId`, `text` | `{}` (error 4 outside the edit window) |
-| `messages.delete` | `accountId`, `chatId`, `msgId` | `{}`, then `message.removed` |
+| `messages.delete` | `accountId`, `chatId`, `msgId` | `{}`, then `message.removed` (a pending message is only dropped from the outbox) |
 | `messages.pin` | `accountId`, `chatId`, `msgId`, `isPinned`? (true) | `{}`, then `message.updated` (error 4 if unsupported, see `capabilities.pinMessage`) |
 | `messages.markRead` | `accountId`, `chatId`, `msgId` | `{}`; marks the chat read up to `msgId` |
 | `messages.find` | `accountId`, `chatId`, `text`, `fromMsgId`? | `{found, msgId}` (async, searches the local cache) |
@@ -177,7 +187,7 @@ Events
 | `message.added` | `Message` |
 | `message.updated` | `Message` |
 | `message.removed` | `{accountId, chatId, msgId}` |
-| `message.sendFailed` | `{accountId, chatId}` |
+| `message.sendFailed` | `{accountId, chatId}` (a send not from `messages.send`; those become `failed` pending messages) |
 | `typing` | `{accountId, chatId, userId, userName, isTyping}` |
 | `presence` | `{accountId, userId, isOnline, timeSeen}` |
 | `notification` | `{accountId, chatId, msgId, chatName, senderName, isGroup, hasMention, text, hasFile}` |
