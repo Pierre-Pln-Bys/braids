@@ -77,14 +77,18 @@ const MODIFIER_KEYS = new Set(['Control', 'Meta', 'Alt', 'Shift', 'AltGraph', 'C
 export function comboOf(e: KeyboardEvent): string {
   if (MODIFIER_KEYS.has(e.key)) return '';
   // the key as the system layout names it (Ctrl+A is the key labelled A on
-  // AZERTY too); the physical key only when the layout gives no plain letter
-  // or digit for a letter / digit key: non-latin layouts, Option+letter
-  // symbols on macOS, the AZERTY digit row
+  // AZERTY too, Ctrl+, the key that types "," on any layout); the physical
+  // (US) position only where the layout types no ASCII character there:
+  // non-latin letters (Cyrillic, Greek, ...), Option+letter symbols on macOS,
+  // and the AZERTY digit row (&, é, ", ... on the digit keys)
   let key: string;
-  const physical = /^Key([A-Z])$/.exec(e.code) ?? /^Digit([0-9])$/.exec(e.code);
+  const letter = /^Key([A-Z])$/.exec(e.code);
+  const digit = /^Digit([0-9])$/.exec(e.code);
+  const ascii = e.key.length === 1 && e.key >= ' ' && e.key <= '~';
   if (e.key === ' ' || e.code === 'Space') key = 'Space';
   else if (/^[a-z0-9]$/i.test(e.key)) key = e.key.toUpperCase();
-  else if (physical) key = physical[1];
+  else if (digit) key = digit[1];
+  else if (letter && !ascii) key = letter[1];
   else if (e.key.length === 1) key = e.key.toUpperCase();
   else key = e.key;
   const parts: string[] = [];

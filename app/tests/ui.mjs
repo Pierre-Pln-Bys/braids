@@ -653,6 +653,37 @@ try {
   await azerty('a', 'KeyQ');
   await page.locator('.chatlist h2', { hasText: 'All chats' }).waitFor();
   check(true, 'shortcuts follow the keyboard layout (AZERTY Ctrl+A)');
+  // a custom layout typing "," on the US M key: Ctrl+, is Settings, not Matrix
+  await azerty(',', 'KeyM');
+  await page.getByRole('button', { name: 'Keyboard' }).waitFor();
+  check(await page.locator('.chatlist h2', { hasText: 'All chats' }).count() === 1, 'Ctrl+, on a custom layout opens Settings (not the US Ctrl+M)');
+  await page.keyboard.press('Escape');
+  // a non-latin layout still uses the US position (Cyrillic г on U)
+  await azerty('г', 'KeyU');
+  await page.locator('.chatlist h2', { hasText: 'Unread' }).waitFor();
+  check(true, 'non-latin layout: Ctrl+<letter> by the US position');
+  await page.keyboard.press('Control+a');
+  await page.locator('.chatlist h2', { hasText: 'All chats' }).waitFor();
+
+  // go to: the search is cleared, the first chat lightly highlighted, full
+  // blue once moved; no mouse hover meanwhile
+  await page.locator('.chatlist .row').nth(2).hover();
+  await page.fill('input[aria-label="Search chats"]', 'o');
+  await page.keyboard.press('Control+u');
+  await page.locator('.chatlist h2', { hasText: 'Unread' }).waitFor();
+  check(await page.inputValue('input[aria-label="Search chats"]') === '', 'go to clears the search');
+  await page.keyboard.press('Control+a');
+  await page.locator('.chatlist h2', { hasText: 'All chats' }).waitFor();
+  const firstRow = page.locator('.chatlist .row').first();
+  check((await firstRow.getAttribute('class')).includes('cursor') && await page.locator('.chatlist .list.soft').count() === 1,
+    'go to: the first chat is lightly highlighted');
+  check(await page.locator('.chatlist .list.kbd').count() === 1, 'go to: no mouse hover until the mouse moves');
+  await page.keyboard.press('j');
+  check(await page.locator('.chatlist .list.soft').count() === 0 && (await page.locator('.chatlist .row').nth(1).getAttribute('class')).includes('cursor'),
+    'moving makes the highlight full');
+  await page.mouse.move(5, 5);
+  await page.locator('.chatlist .row').nth(3).hover();
+  check(await page.locator('.chatlist .list.kbd').count() === 0, 'the mouse brings the hover back');
 
   // changing a shortcut
   await page.keyboard.press('Control+,');

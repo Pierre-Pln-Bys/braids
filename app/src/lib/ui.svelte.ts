@@ -59,7 +59,9 @@ class Ui {
   // Enter. Shown while the chat list or its search has the focus.
   listCursor = $state('');
   // set by the mounted chat list
-  list: { move(delta: number): void; focus(): void } | null = null;
+  // move: highlight the next / previous; focus: at the open chat; first: a
+  // light highlight on the first chat (after a "go to")
+  list: { move(delta: number): void; focus(): void; first(): void } | null = null;
 
   get narrow(): boolean {
     return this.width < 900;

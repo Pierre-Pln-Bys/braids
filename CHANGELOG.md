@@ -15,6 +15,15 @@ release workflow publishes the section of a version as its release notes.
 - The app icon reads at small sizes (GNOME top bar, browser tab): a bigger
   braid with thicker strands on a warm grey circle that stays visible on
   dark panels.
+- Shortcuts follow the key's character on any layout: Ctrl+, opens Settings
+  also where "," sits on the US M key (it went to Matrix). Non-latin layouts
+  keep using the US letter positions.
+
+### Changed
+- "Go to" shortcuts (folders, accounts, Ctrl+N with nothing unread, back to
+  chat list) clear the search. The first chat gets a light highlight that
+  turns full blue when you move it and fades back after 10 seconds; the
+  mouse hover hides until the mouse moves.
 
 ## [0.3.0] - 2026-11-05
 
