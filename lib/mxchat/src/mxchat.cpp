@@ -722,6 +722,13 @@ void MxChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case ReconnectRequestType:
+      {
+        LOG_DEBUG("reconnect");
+        CMxReconnect(m_ConnId);
+      }
+      break;
+
     case JoinChatRequestType:
       {
         std::shared_ptr<JoinChatRequest> joinChatRequest = std::static_pointer_cast<JoinChatRequest>(p_RequestMessage);

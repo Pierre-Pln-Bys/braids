@@ -66,7 +66,12 @@
   .protocols { display: flex; justify-content: center; gap: 22px; flex-wrap: wrap; margin-top: 28px; color: var(--text-2); font-size: 15px; font-weight: 500; }
   .protocols span { display: inline-flex; align-items: center; gap: 8px; }
   .protocols svg { width: 22px; height: 22px; }
-  .install { max-width: 640px; margin: 36px auto 0; }
+  .install { max-width: 640px; margin: 36px auto 0; display: flex; flex-direction: column; }
+  .version { display: inline-flex; align-items: center; gap: 8px; margin: 0 auto 12px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border, rgba(127,127,127,.25)); font-size: 13px; color: inherit; text-decoration: none; opacity: .9; }
+  .version:hover { opacity: 1; }
+  .version b { font-weight: 650; }
+  .beta { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; vertical-align: middle; }
+  .ver-inline { font-weight: 500; opacity: .75; font-size: .85em; }
   .cmd { display: flex; align-items: center; gap: 12px; padding: 14px 14px 14px 18px; border-radius: 12px; background: var(--code-bg); color: var(--code-text); font: 14px/1.4 var(--mono); text-align: left; box-shadow: var(--shadow); }
   .cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
   .cmd code::before { content: '$ '; color: #8E857C; }
@@ -183,6 +188,7 @@
         <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M.632.55v22.9H2.28V24H0V0h2.28v.55zm7.043 7.26v1.157h.033c.309-.443.683-.784 1.117-1.024.433-.245.936-.365 1.5-.365.54 0 1.033.107 1.481.314.448.208.785.582 1.02 1.108.254-.374.6-.706 1.034-.992.434-.287.95-.43 1.546-.43.453 0 .872.056 1.26.167.388.11.716.286.993.53.276.245.489.559.646.951.152.392.23.863.23 1.417v5.728h-2.349V11.52c0-.286-.01-.559-.032-.812a1.755 1.755 0 0 0-.18-.66 1.106 1.106 0 0 0-.438-.448c-.194-.11-.457-.166-.785-.166-.332 0-.6.064-.803.189a1.38 1.38 0 0 0-.48.499 1.946 1.946 0 0 0-.231.696 5.56 5.56 0 0 0-.06.785v4.768h-2.35v-4.8c0-.254-.004-.503-.018-.752a2.074 2.074 0 0 0-.143-.688 1.052 1.052 0 0 0-.415-.503c-.194-.125-.476-.19-.854-.19-.111 0-.259.024-.439.074-.18.051-.36.143-.53.282-.171.138-.319.337-.439.595-.12.259-.18.6-.18 1.02v4.966H5.46V7.81zm15.693 15.64V.55H21.72V0H24v24h-2.28v-.55z"/></svg>Matrix</span>
       </div>
       <div class="install">
+        <a class="version" href="https://github.com/pebll/braids/releases/latest" data-version>Latest version <b data-version-number>v@VERSION@</b><span class="beta" data-beta hidden>beta</span></a>
         <div class="cmd"><code id="install-cmd">curl -fsSL https://pebll.github.io/braids/install.sh | sh</code><button class="copy" data-copy="install-cmd">Copy</button></div>
         <p class="install-note">Linux (x86_64 and ARM64) · no root needed · <a href="#download">other ways to install</a></p>
       </div>
@@ -295,8 +301,8 @@
       <div class="dl">
         <div class="card main">
           <span class="tag">Recommended</span>
-          <h3>Install script</h3>
-          <p>Installs to your home folder (no root), adds braids to the app menu, and updates it when run again.</p>
+          <h3>Install script <span class="ver-inline">· <span data-version-number>v@VERSION@</span><span class="beta" data-beta hidden>beta</span></span></h3>
+          <p>Installs the latest version to your home folder (no root), adds braids to the app menu, and updates it when run again.</p>
           <div class="cmd"><code id="install-cmd-2">curl -fsSL https://pebll.github.io/braids/install.sh | sh</code><button class="copy" data-copy="install-cmd-2">Copy</button></div>
           <p class="install-note">Remove it with <code>curl -fsSL https://pebll.github.io/braids/install.sh | sh -s -- --uninstall</code></p>
         </div>
@@ -358,6 +364,18 @@ cd app && npm install && npm run tauri build</pre>
 </footer>
 
 <script>
+  // the version: stamped when the site is published, then the latest release
+  // (install.sh installs that one); "beta" before 1.0.0
+  function showVersion(v) {
+    if (!/^\d+\.\d+\.\d+/.test(v)) return;
+    document.querySelectorAll('[data-version-number]').forEach((el) => { el.textContent = 'v' + v; });
+    document.querySelectorAll('[data-beta]').forEach((el) => { el.hidden = !v.startsWith('0.'); });
+  }
+  showVersion(document.querySelector('[data-version-number]').textContent.replace(/^v/, ''));
+  fetch('https://api.github.com/repos/pebll/braids/releases/latest')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => r && showVersion(String(r.tag_name).replace(/^v/, '')))
+    .catch(() => {});
   document.querySelectorAll('.copy').forEach((button) => {
     button.addEventListener('click', async () => {
       const text = document.getElementById(button.dataset.copy).textContent;

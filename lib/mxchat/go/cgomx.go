@@ -213,6 +213,11 @@ func CMxGetAvatar(connId int, avatarId *C.char) int {
 	return MxGetAvatar(connId, C.GoString(avatarId))
 }
 
+//export CMxReconnect
+func CMxReconnect(connId int) int {
+	return MxReconnect(connId)
+}
+
 //export CMxJoinChat
 func CMxJoinChat(connId int, link *C.char) int {
 	return MxJoinChat(connId, C.GoString(link))

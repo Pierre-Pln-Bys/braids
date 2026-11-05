@@ -53,7 +53,7 @@ export interface Toast {
   action?: { label: string; run: () => void };
 }
 
-export type Filter = { kind: 'all' } | { kind: 'favorites' } | { kind: 'archived' } | { kind: 'account'; accountId: string };
+export type Filter = { kind: 'all' } | { kind: 'unread' } | { kind: 'favorites' } | { kind: 'archived' } | { kind: 'account'; accountId: string };
 
 class Store {
   // daemon
@@ -88,6 +88,8 @@ class Store {
   focused = $state(true);
   networkOnline = $state(true);
   staleSince = $state(0); // after sleep or a network outage, until the accounts caught up (ms, 0: fresh)
+  lastSynced = $state<Record<string, number>>({}); // accountId -> when it was last online and done fetching (ms)
+  now = $state(Date.now()); // for "updated 3 min ago", ticks every 30 s
 
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private avatarAsked = new Set<string>();
@@ -116,6 +118,8 @@ class Store {
       .filter((c) => this.accounts[c.accountId])
       .filter((c) => (f.kind === 'archived' ? this.category(c) === 'archived' : this.category(c) !== 'archived'))
       .filter((c) => f.kind !== 'favorites' || this.category(c) === 'favorite')
+      // the open chat stays while it is read
+      .filter((c) => f.kind !== 'unread' || (c.isUnread && !this.eventsOnly(c)) || chatKey(c.accountId, c.id) === this.current)
       .filter((c) => f.kind !== 'account' || c.accountId === f.accountId)
       .filter((c) => !q || this.chatName(c).toLowerCase().includes(q))
       .sort((a, b) => fav(b) - fav(a) || b.lastActivity - a.lastActivity);
@@ -314,6 +318,45 @@ class Store {
   // What the shown state is up to, for the indicator over the chat list:
   // '' current, 'offline' no network, 'updating' connecting, syncing or
   // possibly outdated (after the computer slept or the network came back).
+  // The account's state as shown: offline while the system has no network
+  // (protocols notice that late), "fetching" while online and fetching.
+  accountStatus(a: Account): 'online' | 'fetching' | 'connecting' | 'offline' | 'error' {
+    if (a.state === 'error') return 'error';
+    if (!this.networkOnline || a.state === 'offline') return 'offline';
+    if (a.state === 'connecting') return 'connecting';
+    return a.syncing ? 'fetching' : 'online';
+  }
+
+  accountStatusText(a: Account): string {
+    switch (this.accountStatus(a)) {
+      case 'error': return a.error || 'Error';
+      case 'offline': return this.networkOnline ? 'Offline' : 'Offline (no network)';
+      case 'connecting': return 'Connecting…';
+      case 'fetching': return 'Fetching new messages…';
+    }
+    const t = this.lastSynced[a.accountId];
+    if (!t) return 'Online';
+    const min = Math.floor((this.now - t) / 60000);
+    return `Online · up to date${min >= 1 ? ` (checked ${min < 60 ? `${min} min` : `${Math.floor(min / 60)} h`} ago)` : ''}`;
+  }
+
+  // What the indicator over the chat list says, naming the accounts it waits for.
+  get syncDetail(): string {
+    if (!this.networkOnline) return 'No network: chats may be outdated';
+    const busy = Object.values(this.accounts).filter((a) => a.state === 'connecting' || a.syncing);
+    const names = busy.map((a) => this.accountName(a.accountId));
+    if (!busy.length) return this.staleSince ? 'Checking for new messages…' : '';
+    const verb = busy.some((a) => a.state === 'connecting') ? 'Connecting' : 'Updating';
+    return `${verb} ${names.length > 2 ? `${names.length} accounts` : names.join(' and ')}…`;
+  }
+
+  // Short form for the chat list header: the account when only one is busy.
+  get syncLabel(): string {
+    const busy = Object.values(this.accounts).filter((a) => a.state === 'connecting' || a.syncing);
+    if (busy.length !== 1) return 'Updating…';
+    return `${busy[0].state === 'connecting' ? 'Connecting' : 'Updating'} ${this.accountName(busy[0].accountId)}…`;
+  }
+
   get syncStatus(): '' | 'offline' | 'updating' {
     if (!this.networkOnline) return 'offline';
     const accounts = Object.values(this.accounts);
@@ -328,6 +371,9 @@ class Store {
   markStale() {
     const since = Date.now();
     this.staleSince = since;
+    // connections may have died meanwhile: reconnect now instead of waiting
+    // for the protocols' keep-alive timeouts
+    if (this.connected) api.call('accounts.reconnect').catch(() => {});
     const check = () => {
       if (this.staleSince !== since) return;
       const settled = Object.values(this.accounts).every((a) => a.state !== 'connecting' && !a.syncing);
@@ -339,6 +385,7 @@ class Store {
   }
 
   private watchWake() {
+    setInterval(() => (this.now = Date.now()), 30000);
     // timers stop while the computer sleeps: a long gap means it woke up
     let last = Date.now();
     setInterval(() => {
@@ -386,6 +433,7 @@ class Store {
       const next: Record<string, Account> = {};
       for (const a of accounts) next[a.accountId] = a;
       this.accounts = next;
+      for (const a of accounts) if (a.state === 'online' && !a.syncing) this.lastSynced[a.accountId] = Date.now();
 
       const chats: Chat[] = await api.call('chats.list', { includeArchived: true });
       const chatMap: Record<string, Chat> = {};
@@ -456,6 +504,7 @@ class Store {
           a.state = p.state;
           a.error = p.error ?? '';
           a.syncing = !!p.syncing;
+          if (a.state === 'online' && !a.syncing) this.lastSynced[a.accountId] = Date.now();
         }
         break;
       }

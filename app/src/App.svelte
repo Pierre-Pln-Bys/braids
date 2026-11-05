@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { CircleAlert, LoaderCircle, MessagesSquare } from '@lucide/svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import AccountPrompt from './components/AccountPrompt.svelte';
   import Braid from './components/Braid.svelte';
   import ChatList from './components/ChatList.svelte';
@@ -88,16 +88,19 @@
     el.addEventListener('pointerup', up);
   }
 
-  function moveChat(delta: number) {
-    const list = store.chatList;
-    if (!list.length) return;
-    const keys = list.map((c) => `${c.accountId}\u0001${c.id}`);
-    const i = keys.indexOf(store.current);
-    const next = keys[Math.max(0, Math.min(keys.length - 1, i < 0 ? 0 : i + delta))];
-    store.openChat(next);
+  // the chat list with the keyboard: shows it (narrow layout: instead of the
+  // chat), then moves the highlight or focuses it
+  async function toList(then: () => void) {
+    if (ui.narrow && store.current) {
+      ui.listCursor = store.current;
+      store.closeChat();
+      await tick();
+    }
+    then();
   }
 
-  // next unread chat after the current one in list order (wrapping)
+  // next unread chat after the current one in list order (wrapping); none
+  // left: no chat open (the "pick a chat" screen)
   function nextUnread() {
     const list = store.chatList;
     const keys = list.map((c) => `${c.accountId}\u0001${c.id}`);
@@ -105,10 +108,14 @@
     for (let n = 1; n <= list.length; n++) {
       const j = (i + n) % list.length;
       if (list[j].isUnread && keys[j] !== store.current) {
+        ui.listCursor = '';
         store.openChat(keys[j]);
+        ui.focusComposer++;
         return;
       }
     }
+    store.closeChat();
+    toList(() => ui.list?.focus());
   }
 
   // the account of a protocol; with several, the next one after the shown one
@@ -125,7 +132,11 @@
     switch (action) {
       case 'nextChat':
       case 'prevChat':
-        moveChat(action === 'nextChat' ? 1 : -1);
+        toList(() => ui.list?.move(action === 'nextChat' ? 1 : -1));
+        return true;
+      case 'focusList':
+        ui.listCursor = '';
+        toList(() => ui.list?.focus());
         return true;
       case 'searchChats':
         if (ui.narrow) store.closeChat();
@@ -136,6 +147,8 @@
         ui.chatSearchOpen = true;
         return true;
       case 'nextUnread':
+        // through all chats, not only the ones matching a search
+        store.search = '';
         nextUnread();
         return true;
       case 'editLast':
@@ -148,16 +161,24 @@
         return true;
       case 'goAll':
         store.filter = { kind: 'all' };
+        toList(() => ui.list?.focus());
+        return true;
+      case 'goUnread':
+        store.filter = { kind: 'unread' };
+        toList(() => ui.list?.focus());
         return true;
       case 'goFavorites':
         if (settings.favorites === 'top') return false;
         store.filter = { kind: 'favorites' };
+        toList(() => ui.list?.focus());
         return true;
       case 'goMatrix':
       case 'goSignal':
       case 'goTelegram':
       case 'goWhatsApp':
-        return goAccount(ACCOUNT_ACTIONS[action]!);
+        if (!goAccount(ACCOUNT_ACTIONS[action]!)) return false;
+        toList(() => ui.list?.focus());
+        return true;
       case 'settings':
         ui.settingsSection = 'general';
         ui.settingsOpen = true;

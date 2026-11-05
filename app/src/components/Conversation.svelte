@@ -66,6 +66,7 @@
   let lastKey = '';
   let lastCount = 0;
   let lastNewestId = '';
+  let openedAt = ''; // the chat just opened, until it is scrolled to its unread messages
 
   const subtitle = $derived.by(() => {
     if (!chat) return '';
@@ -100,12 +101,37 @@
         api.call('members.get', { accountId, chatId }).then((r) => { store.members[key] = r.members; }).catch(() => { store.members[key] = []; });
       }
     }
+    if (opened) openedAt = key;
     tick().then(() => {
       if (!scroller) return;
-      if (opened || (appended && (wasAtBottom || items[count - 1]?.isOutgoing))) scrollToBottom();
+      if (opened && list?.firstUnreadId) scrollToUnread();
+      else if (opened || (appended && (wasAtBottom || items[count - 1]?.isOutgoing))) scrollToBottom();
       fillViewport();
     });
   });
+
+  // an unread chat opens at the "New messages" line (once its messages are
+  // there), a read one at the bottom
+  $effect(() => {
+    const first = list?.firstUnreadId;
+    if (first && openedAt === chatKey) untrack(() => tick().then(scrollToUnread));
+  });
+
+  async function scrollToUnread() {
+    const first = list?.firstUnreadId;
+    if (!scroller || !first || openedAt !== chatKey) return;
+    openedAt = '';
+    const idx = items.findIndex((m) => m.id === first);
+    if (idx >= 0 && idx < startIdx) {
+      startId = items[Math.max(0, idx - 5)].id;
+      await tick();
+    }
+    const marker = scroller.querySelector<HTMLElement>('[data-unread-marker]');
+    if (!marker) return scrollToBottom();
+    // the line near the top, with the message before it in sight
+    scroller.scrollTop += marker.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 64;
+    atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
+  }
 
   function scrollToBottom() {
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -272,6 +298,12 @@
     if (ui.chatSearchOpen) tick().then(() => searchInput?.focus());
   });
 
+  // closing the search goes back to writing
+  function closeSearch() {
+    ui.chatSearchOpen = false;
+    ui.focusComposer++;
+  }
+
   // "Show in chat" from elsewhere (shared media)
   $effect(() => {
     const req = ui.jumpRequest;
@@ -333,7 +365,7 @@
           </span>
         </span>
       </button>
-      <button class="icon-btn" class:active={ui.chatSearchOpen} aria-label="Search in chat" title={`Search in chat${hint('searchInChat')}`} onclick={() => (ui.chatSearchOpen = !ui.chatSearchOpen)}>
+      <button class="icon-btn" class:active={ui.chatSearchOpen} aria-label="Search in chat" title={`Search in chat${hint('searchInChat')}`} onclick={() => (ui.chatSearchOpen ? closeSearch() : (ui.chatSearchOpen = true))}>
         <Search size={19} strokeWidth={1.75} />
       </button>
       <button class="icon-btn" class:active={ui.infoOpen} aria-label="Toggle info panel" title={`Chat info${hint('toggleInfo')}`} onclick={() => (ui.infoOpen = !ui.infoOpen)}>
@@ -380,11 +412,11 @@
           placeholder="Search in this chat"
           aria-label="Search in this chat"
           oninput={() => { searchFrom = ''; searchStatus = ''; }}
-          onkeydown={(e) => { if (e.key === 'Enter') findNext(); if (e.key === 'Escape') ui.chatSearchOpen = false; }}
+          onkeydown={(e) => { if (e.key === 'Enter') findNext(); if (e.key === 'Escape') { e.preventDefault(); closeSearch(); } }}
         />
         {#if searchStatus}<span class="search-status">{searchStatus}</span>{/if}
         <button class="icon-btn sm" title="Find older (Enter)" aria-label="Find older" onclick={findNext}><ChevronUp size={17} /></button>
-        <button class="icon-btn sm" aria-label="Close search" onclick={() => (ui.chatSearchOpen = false)}><X size={17} /></button>
+        <button class="icon-btn sm" aria-label="Close search" onclick={closeSearch}><X size={17} /></button>
       </div>
     {/if}
 

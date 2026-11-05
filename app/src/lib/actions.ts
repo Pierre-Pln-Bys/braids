@@ -6,12 +6,12 @@
 
 // Chat and message actions shared by the chat list, conversation and info panel.
 
-import { Archive, ArchiveRestore, Bell, BellOff, Mail, MailCheck, Star, StarOff, Trash2 } from '@lucide/svelte';
+import { Archive, ArchiveRestore, Bell, BellOff, Image, Mail, MailCheck, MessageCircle, Star, StarOff, Trash2 } from '@lucide/svelte';
 import * as api from './api';
 import { inviteLinkProtocol } from './protocols';
-import { splitKey, store } from './store.svelte';
+import { chatKey, splitKey, store } from './store.svelte';
 import type { Chat } from './types';
-import { ui, type MenuItem } from './ui.svelte';
+import { openLightbox, ui, type MenuItem } from './ui.svelte';
 
 export function chatMenu(c: Chat): MenuItem[] {
   const items: MenuItem[] = [];
@@ -115,4 +115,33 @@ export function openLink(url: string) {
     return;
   }
   api.openUrl(url).catch((e) => store.toastError(e));
+}
+
+// Opens a profile picture (of a user or a chat) in the image viewer.
+export function viewPicture(accountId: string, id: string, name: string): boolean {
+  const path = store.avatar(accountId, id);
+  if (!path) return false;
+  openLightbox([{ path, name: `${name} – profile picture` }], path);
+  return true;
+}
+
+// The private chat with a user: opened, or created first.
+export async function messagePrivately(accountId: string, userId: string) {
+  ui.infoOpen = ui.wide && ui.infoOpen;
+  const key = chatKey(accountId, userId);
+  try {
+    if (store.chats[key]) await store.openChat(key);
+    else await store.createChat(accountId, userId);
+    ui.focusComposer++;
+  } catch (e) {
+    store.toastError(e);
+  }
+}
+
+// Menu for a person in a group (avatar, name, member list).
+export function personMenu(accountId: string, userId: string, name: string): MenuItem[] {
+  const items: MenuItem[] = [];
+  if (store.avatar(accountId, userId)) items.push({ label: 'View profile picture', icon: Image, run: () => viewPicture(accountId, userId, name) });
+  if (userId !== store.accounts[accountId]?.selfId) items.push({ label: `Message ${name.split(' ')[0]} privately`, icon: MessageCircle, run: () => messagePrivately(accountId, userId) });
+  return items;
 }

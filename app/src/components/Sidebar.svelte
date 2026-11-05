@@ -9,7 +9,7 @@
   settings. 232 px, collapsible to 60 px; a drawer in the narrow layout.
 -->
 <script lang="ts">
-  import { Archive, CircleAlert, Images, Inbox, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings, Star, WifiOff } from '@lucide/svelte';
+  import { Archive, CircleAlert, CircleDot, Images, Inbox, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, Settings, Star, WifiOff } from '@lucide/svelte';
   import { tick } from 'svelte';
   import { hint } from '../lib/keybinds.svelte';
   import { settings } from '../lib/settings.svelte';
@@ -41,6 +41,7 @@
 
   const folders = $derived([
     { f: { kind: 'all' } as Filter, label: 'All chats', icon: Inbox },
+    { f: { kind: 'unread' } as Filter, label: 'Unread', icon: CircleDot },
     ...(settings.favorites === 'top' ? [] : [{ f: { kind: 'favorites' } as Filter, label: 'Favorites', icon: Star }]),
   ]);
 
@@ -85,12 +86,6 @@
     ui.settingsOpen = true;
   }
 
-  function stateTitle(state: string, error: string): string {
-    if (state === 'error') return error || 'Error';
-    if (state === 'connecting') return 'Connecting…';
-    if (state === 'offline') return 'Offline';
-    return 'Online';
-  }
 </script>
 
 <nav class="sidebar" class:collapsed aria-label="Folders and accounts">
@@ -124,13 +119,16 @@
         <button
           class="item"
           class:active={isActive(f)}
-          class:dim={account.state === 'offline'}
+          class:dim={store.accountStatus(account) === 'offline'}
           onclick={() => select(f)}
           ondblclick={() => !collapsed && startRename(account.accountId)}
           oncontextmenu={(e) => accountMenu(e, account.accountId)}
-          title={`${store.accountName(account.accountId)} — ${stateTitle(account.state, account.error)}`}
+          title={`${store.accountName(account.accountId)} — ${store.accountStatusText(account)}`}
         >
-          <span class="ico"><ProtocolBadge protocol={account.protocol} color={store.accountColor(account.accountId)} size={18} /></span>
+          <span class="ico">
+            <ProtocolBadge protocol={account.protocol} color={store.accountColor(account.accountId)} size={18} />
+            <span class="dot {store.accountStatus(account)}" aria-hidden="true"></span>
+          </span>
           {#if !collapsed && renaming === account.accountId}
             <!-- svelte-ignore a11y_autofocus -->
             <input class="rename" bind:this={renameInput} bind:value={renameValue} aria-label="Account name" maxlength="40"
@@ -139,11 +137,14 @@
               onblur={() => finishRename(true)} />
           {:else if !collapsed}<span class="label">{store.accountName(account.accountId)}</span>{/if}
           {#if !collapsed}
-            {#if account.state === 'connecting'}
+            {@const st = store.accountStatus(account)}
+            {#if st === 'connecting'}
               <span class="state" aria-label="Connecting"><LoaderCircle size={14} class="spin" /></span>
-            {:else if account.state === 'offline'}
+            {:else if st === 'fetching'}
+              <span class="state" aria-label="Fetching new messages"><RefreshCw size={13} class="spin" /></span>
+            {:else if st === 'offline'}
               <span class="state" aria-label="Offline"><WifiOff size={14} /></span>
-            {:else if account.state === 'error'}
+            {:else if st === 'error'}
               <span class="state warn" aria-label="Error"><CircleAlert size={15} /></span>
             {/if}
           {/if}
@@ -226,6 +227,13 @@
   .rename { flex: 1; min-width: 0; height: 24px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; outline: none; }
   .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .state { color: var(--text-muted); display: flex; }
+  /* account state on the protocol badge: green online, amber connecting or
+     fetching, grey offline, red error */
+  .ico { position: relative; }
+  .dot { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--bg-1); background: var(--text-muted); }
+  .dot.online { background: var(--success); }
+  .dot.fetching, .dot.connecting { background: var(--warning); }
+  .dot.error { background: var(--danger); }
   .state.warn { color: var(--warning); }
   .count.corner { position: absolute; top: 1px; right: 4px; min-width: 16px; height: 16px; font-size: 10px; line-height: 16px; padding: 0 4px; }
   .section { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); padding: 14px 10px 6px; }

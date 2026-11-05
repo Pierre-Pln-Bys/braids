@@ -90,6 +90,10 @@ try {
   check(await dwight.locator('.circle img').count() === 0 && (await dwight.locator('.circle').textContent()) === 'D', 'initials without a picture');
   await page.fill('input[aria-label="Search chats"]', 'offi');
   check((await page.getByRole('option').count()) === 1, 'search filters chats');
+  await page.locator('input[aria-label="Search chats"]').press('Enter');
+  await page.locator('.conv header', { hasText: 'The Office' }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(await page.locator('textarea[aria-label=Message]').inputValue() === '', 'Enter in the search opens the chat, no new line in the composer');
   await page.fill('input[aria-label="Search chats"]', '');
 
   // conversation
@@ -97,6 +101,39 @@ try {
   await page.locator('[data-msg-id]').first().waitFor();
   check((await page.locator('.msg .sender').count()) > 0, 'group shows sender names');
   check((await page.locator('.system-line').first().textContent()) === 'Andy joined', 'group event shown as a system line');
+  // search in the chat (Ctrl+F); closing it goes back to the composer
+  await page.keyboard.press('Control+f');
+  await page.locator('input[aria-label="Search in this chat"]').fill('headhunter');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(await page.locator('input[aria-label="Search in this chat"]').count() === 0, 'closing the chat search focuses the composer');
+  await page.keyboard.press('Control+f');
+  await page.getByRole('button', { name: 'Close search' }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(true, 'the close button focuses the composer too');
+
+  // a sender in a group: profile picture, private chat
+  const michaelMsg = page.locator('.msg:not(.own)', { has: page.locator('.sender', { hasText: /^Michael$/ }) }).first();
+  await michaelMsg.locator('.sender').click();
+  await page.getByRole('menuitem', { name: 'View profile picture' }).click();
+  await page.locator('.lightbox img').waitFor();
+  check(true, 'group sender: profile picture in the viewer');
+  await page.keyboard.press('Escape');
+  await page.locator('.lightbox').waitFor({ state: 'detached' });
+  await michaelMsg.locator('.sender').click();
+  await page.getByRole('menuitem', { name: 'Message Michael privately' }).click();
+  await page.locator('.conv header', { hasText: 'Michael' }).waitFor();
+  check(await page.locator('.conv header', { hasText: 'The Office' }).count() === 0, 'group sender: message privately opens the private chat');
+  // the picture from the info panel
+  await page.keyboard.press('Control+i');
+  await page.getByRole('button', { name: 'View profile picture' }).click();
+  await page.locator('.lightbox img').waitFor();
+  check(true, 'info panel: the profile picture opens in the viewer');
+  await page.keyboard.press('Escape');
+  await page.locator('.lightbox').waitFor({ state: 'detached' });
+  await page.keyboard.press('Control+i');
+  await page.getByRole('option', { name: /The Office/ }).click();
+  await page.locator('.conv header', { hasText: 'The Office' }).waitFor();
   await page.keyboard.press('Control+i');
   await page.locator('.info .member').first().waitFor();
   check(await page.locator('.info .member').count() === 5, 'member list shows 5');
@@ -405,12 +442,35 @@ try {
   await pamRow2.locator('.unread-count').waitFor({ state: 'detached' });
   check(true, 'opening clears the unread mark');
 
+  // Unread folder: only unread chats (and the open one while it is read)
+  await page.keyboard.press('Control+u');
+  await page.locator('.chatlist h2', { hasText: 'Unread' }).waitFor();
+  check(await page.locator('.chatlist .row:not(.selected)').count() >= 1 &&
+    await page.locator('.chatlist .row:not(.selected):not(.unread)').count() === 0, 'Unread folder lists the unread chats');
+  await kevinRow.click();
+  await page.locator('[data-unread-marker]').waitFor();
+  const markerBox = await page.locator('[data-unread-marker]').boundingBox();
+  const scrollBox = await page.locator('.messages').boundingBox();
+  check(markerBox.y >= scrollBox.y && markerBox.y + markerBox.height <= scrollBox.y + scrollBox.height, 'an unread chat opens at the New messages line');
+  await kevinRow.locator('.unread-count').waitFor({ state: 'detached' });
+  check(await kevinRow.count() === 1, 'the open chat stays in Unread once read');
+  await page.keyboard.press('Control+a');
+  await page.locator('.chatlist h2', { hasText: 'All chats' }).waitFor();
+
   // loading / outdated indicator: network gone and back
+  const accountItem = page.locator('.sidebar .item', { has: page.locator('.dot') }).first();
+  check(await accountItem.locator('.dot.online').count() === 1 && (await accountItem.getAttribute('title')).includes('Online'),
+    'account shown online (green dot, tooltip)');
+  const reconnects = [];
+  page.on('request', (r) => r.url().includes('/__braids/call') && (r.postData() ?? '').includes('accounts.reconnect') && reconnects.push(r));
   await page.context().setOffline(true);
   await page.locator('.chatlist .sync', { hasText: 'Offline' }).waitFor();
   check(true, 'offline shown');
+  check(await accountItem.locator('.dot.offline').count() === 1 && (await accountItem.getAttribute('title')).includes('no network'),
+    'accounts shown offline at once without network');
   await page.context().setOffline(false);
   await page.locator('.chatlist .sync', { hasText: 'Updating' }).waitFor();
+  check(reconnects.length >= 1, 'network back: the accounts are asked to reconnect');
   await shot('updating');
   await page.locator('.chatlist .sync').waitFor({ state: 'detached', timeout: 15000 });
   check(true, 'updating shown until the accounts caught up');
@@ -538,12 +598,43 @@ try {
   await page.keyboard.press('Escape');
   const selectedName = () => page.locator('[role=option][aria-selected=true] .name').textContent();
   const before = await selectedName();
+  const cursorName = () => page.locator('.chatlist .row.cursor .name').textContent();
   await page.keyboard.press('Alt+j');
-  await page.waitForFunction((b) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent !== b, before);
-  check(true, 'Alt+J opens the next chat');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  check((await selectedName()) === before && (await cursorName()) !== before &&
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Chats'), 'Alt+J highlights the next chat without opening it');
+  const highlighted = await cursorName();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction((n) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent === n, highlighted);
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message');
+  check(await page.locator('textarea[aria-label=Message]').inputValue() === '' && await page.locator('.chatlist .row.cursor').count() === 0,
+    'Enter opens the highlighted chat, cursor in the composer');
   await page.keyboard.press('Alt+k');
+  await page.keyboard.press('Enter');
   await page.waitForFunction((b) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent === b, before);
-  check(true, 'Alt+K back to the previous chat');
+  check(true, 'Alt+K and Enter go back to the previous chat');
+  await page.keyboard.press('Alt+h');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  check((await cursorName()) === before && await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Chats'),
+    'Alt+H goes back to the chat list, at the open chat');
+  await page.keyboard.press('j');
+  check((await cursorName()) !== before && (await selectedName()) === before, 'j in the list moves the highlight');
+  await page.locator('textarea[aria-label=Message]').focus();
+  check(await page.locator('.chatlist .row.cursor').count() === 0, 'the highlight goes away when the list loses the focus');
+  // search: the highlight moves through the results, the search keeps the focus
+  await page.keyboard.press('Control+Space');
+  await page.keyboard.type('i');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  const firstHit = await cursorName();
+  await page.keyboard.press('Alt+j');
+  check((await cursorName()) !== firstHit && await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search chats'),
+    'Alt+J in the search moves the highlight, typing goes on in the search');
+  const target = await cursorName();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction((n) => document.querySelector('[role=option][aria-selected=true] .name')?.textContent === n, target);
+  check(true, 'Enter in the search opens the highlighted result');
+  await page.fill('input[aria-label="Search chats"]', '');
+  await page.getByRole('option', { name: new RegExp(before) }).first().click();
   await page.keyboard.press('Control+b');
   await page.locator('.chatlist h2', { hasText: 'Favorites' }).waitFor();
   check(true, 'Ctrl+B shows favorites');
@@ -657,6 +748,31 @@ try {
   check((await composer.inputValue()).includes('🚀'), 'emoji picker search inserts the emoji');
   await composer.fill('');
 
+  // outbox: a message sent while offline waits (greyed, clock), then goes out
+  await composer.fill('/offline 3');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  await composer.fill('see you after the outage');
+  await page.keyboard.press('Enter');
+  const waitingMsg = page.locator('.msg.pending', { hasText: 'see you after the outage' });
+  await waitingMsg.waitFor();
+  check(await waitingMsg.getByLabel('Waiting for the connection').count() === 1, 'offline: the message stays, greyed, waiting');
+  await waitingMsg.waitFor({ state: 'detached', timeout: 15000 });
+  await page.locator('.msg.own:not(.pending)', { hasText: 'see you after the outage' }).waitFor();
+  check(true, 'back online: the message is sent');
+  // refused: "Not sent" with Send again and Delete
+  await composer.fill('/fail this one');
+  await page.keyboard.press('Enter');
+  const failedMsg = page.locator('.msg.failed', { hasText: '/fail this one' });
+  await failedMsg.waitFor();
+  check(await failedMsg.locator('.not-sent', { hasText: 'Not sent' }).count() === 1, 'a refused message is marked Not sent');
+  await failedMsg.getByRole('button', { name: 'Send again' }).click();
+  await failedMsg.locator('.not-sent').waitFor();
+  check(true, 'send again (refused again)');
+  await failedMsg.getByRole('button', { name: 'Delete' }).click();
+  await failedMsg.waitFor({ state: 'detached' });
+  check(true, 'a failed message can be deleted');
+
   // link preview card
   await page.route('**/__braids/preview?*', (route) => route.fulfill({ json: { url: 'https://example.com/paper', title: 'Paper sales up 12%', description: 'Scranton branch leads the quarter.', siteName: 'Example News', image: '' } }));
   await composer.fill('read this https://example.com/paper');
@@ -684,6 +800,38 @@ try {
   await page.locator('.msg.highlight', { hasText: 'copy me please' }).waitFor();
   check(true, 'a search result opens the chat at the message');
   await page.locator('input[aria-label="Search chats"]').fill('');
+  await page.fill('input[aria-label="Search chats"]', 'no such chat');
+  await page.keyboard.press('Control+N');
+  check(await page.inputValue('input[aria-label="Search chats"]') === '' && (await page.getByRole('option').count()) >= 2,
+    'next unread (Ctrl+N) clears the search');
+  // no unread chat left: Ctrl+N closes the chat ("pick a chat")
+  for (let n = 0; n < 30 && await page.locator('.conv').count(); n++) {
+    await page.keyboard.press('Control+N');
+    await page.waitForTimeout(150);
+  }
+  check(await page.locator('.conv').count() === 0 && await page.locator('.no-chat').count() === 1 &&
+    await page.locator('[role=option][aria-selected=true]').count() === 0, 'Ctrl+N without unread chats closes the chat');
+
+  // narrow window: the list or the chat; Alt+H back to the list, Enter opens
+  await page.setViewportSize({ width: 800, height: 800 });
+  await page.getByRole('option', { name: /The Office/ }).click();
+  await page.locator('.conv').waitFor();
+  check(await page.locator('.chatlist').count() === 0, 'narrow: the chat replaces the list');
+  await page.keyboard.press('Alt+h');
+  await page.locator('.chatlist .row.cursor', { hasText: 'The Office' }).waitFor();
+  check(await page.locator('.conv').count() === 0, 'narrow: Alt+H shows the list, the chat highlighted');
+  await page.keyboard.press('Alt+j');
+  const narrowTarget = await page.locator('.chatlist .row.cursor .name').textContent();
+  check(narrowTarget !== 'The Office' && await page.locator('.conv').count() === 0, 'narrow: Alt+J highlights in the list');
+  await page.keyboard.press('Enter');
+  await page.locator('.conv header', { hasText: narrowTarget }).waitFor();
+  check(true, 'narrow: Enter opens the highlighted chat');
+  await page.keyboard.press('Alt+j');
+  await page.locator('.chatlist .row.cursor').waitFor();
+  check(await page.locator('.conv').count() === 0, 'narrow: Alt+J from a chat goes back to the list');
+  await page.keyboard.press('Control+a');
+  check(await page.locator('.chatlist').count() === 1, 'narrow: folder shortcuts show the list');
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // favorites pinned at the top instead of their own folder
   await page.keyboard.press('Control+,');
@@ -737,6 +885,7 @@ try {
   await page.locator('main.conv header', { hasText: 'Road trip' }).waitFor();
   check(await page.getByRole('option', { name: /Road trip/ }).count() === 1, 'new group created and opened');
   await shot('new-group');
+  await page.locator('[aria-labelledby=newchat-title]').waitFor({ state: 'detached' }).catch(() => {});
   await page.keyboard.press('Control+,');
 
   // remove account

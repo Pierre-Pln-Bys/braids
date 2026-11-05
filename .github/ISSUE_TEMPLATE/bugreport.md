@@ -9,9 +9,10 @@ labels: bug
 **How to reproduce it**:
 
 **Environment**:
-- Version (`braidsd --version`):
+- braids version (Settings → About):
+- Installed with (install script / .deb / Flatpak / AppImage / archive / source):
 - OS / distro:
-- Protocol(s):
+- Messenger(s):
 
 **Log**:
 <!--

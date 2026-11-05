@@ -674,6 +674,7 @@ void SgChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case ReconnectRequestType:
     case ReinitRequestType:
       {
         LOG_DEBUG("reinit");

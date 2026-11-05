@@ -589,6 +589,31 @@ func (conn *MxConn) stop() {
 	conn.saveState(false)
 }
 
+// MxReconnect restarts the sync request on fresh connections (after the
+// computer slept or the network changed, the long-poll may hang on a dead
+// connection until a timeout).
+func MxReconnect(connId int) int {
+	conn := GetConn(connId)
+	if conn == nil {
+		return -1
+	}
+
+	conn.mu.Lock()
+	running := conn.running
+	client := conn.client
+	conn.mu.Unlock()
+	if !running || client == nil {
+		return -1
+	}
+
+	if client.Client != nil {
+		client.Client.CloseIdleConnections()
+	}
+
+	client.StopSync()
+	return 0
+}
+
 // MxWaitReady waits until crypto is initialized. Returns 0 if ready.
 func MxWaitReady(connId int, timeoutSec int) int {
 	conn := GetConn(connId)
@@ -736,6 +761,13 @@ func (conn *MxConn) run(pickleKey []byte) {
 		if errors.Is(err, mautrix.MUnknownToken) {
 			conn.reportTokenInvalid()
 			break
+		}
+
+		if err == nil {
+			// stopped by MxReconnect: sync again right away
+			LOG_DEBUG("sync restarted")
+			attempt = -1
+			continue
 		}
 
 		LOG_WARNING(fmt.Sprintf("sync stopped: %v", err))

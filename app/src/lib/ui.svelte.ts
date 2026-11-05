@@ -54,6 +54,12 @@ class Ui {
   focusComposer = $state(0); // bump to focus
   recordingKeys = $state(false); // a shortcut is being recorded in Settings
   focusSearch = $state(0);
+  // the chat list's keyboard highlight (Alt+J/K, arrows): a chat key, or a
+  // message search result ("m\u0002" + chat key + "\u0001" + id); opened with
+  // Enter. Shown while the chat list or its search has the focus.
+  listCursor = $state('');
+  // set by the mounted chat list
+  list: { move(delta: number): void; focus(): void } | null = null;
 
   get narrow(): boolean {
     return this.width < 900;

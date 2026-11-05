@@ -12,6 +12,7 @@
   import { File as FileIcon, LoaderCircle, Mic, Paperclip, Pencil, Play, Reply, SendHorizontal, Smile, Trash2, X } from '@lucide/svelte';
   import { onDestroy, tick } from 'svelte';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { editLastOwnMessage } from '../lib/actions';
   import { senderColor } from '../lib/format';
   import { settings } from '../lib/settings.svelte';
@@ -361,7 +362,7 @@
               <img src={api.fileUrl(path)} alt={baseName(path)} onerror={() => (broken[path] = true)} />
             {:else}
               <!-- the first frame -->
-              <video src={`${api.fileUrl(path)}#t=0.1`} preload="metadata" muted onerror={() => (broken[path] = true)}></video>
+              <video use:mediaSrc={{ path, fragment: '#t=0.1' }} preload="metadata" muted onerror={() => (broken[path] = true)}></video>
               <span class="play"><Play size={14} fill="currentColor" /></span>
             {/if}
             <button class="remove" aria-label="Remove attachment" onclick={() => attachments.splice(i, 1)}><X size={12} strokeWidth={2.5} /></button>

@@ -12,6 +12,7 @@
 <script lang="ts">
   import { ChevronLeft, ChevronRight, ExternalLink, X, ZoomIn, ZoomOut } from '@lucide/svelte';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { store } from '../lib/store.svelte';
   import { ui } from '../lib/ui.svelte';
 
@@ -151,13 +152,16 @@
         {#if videoFailed}
           <div class="lb-failed">
             <p>This video cannot be played here.</p>
-            <small>Playing H.264 videos needs GStreamer's codecs (e.g. gstreamer1.0-libav).</small>
+            <small>Most videos (MP4, H.264) need GStreamer's libav plugin:<br />
+              <code>sudo apt install gstreamer1.0-libav</code> (Debian, Ubuntu)<br />
+              <code>sudo dnf install gstreamer1-plugin-libav</code> (Fedora) · <code>sudo pacman -S gst-libav</code> (Arch)<br />
+              then restart braids.</small>
             <button class="btn" onclick={() => api.openPath(item.path).catch((e) => store.toastError(e))}><ExternalLink size={16} />Open in the video player</button>
           </div>
         {:else}
           {#key item.path}
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={api.fileUrl(item.path)} controls autoplay onerror={() => (videoFailed = true)}></video>
+            <video use:mediaSrc={{ path: item.path }} controls autoplay onerror={() => (videoFailed = true)}></video>
           {/key}
         {/if}
       {:else}
@@ -197,4 +201,5 @@
   .prev { left: 12px; }
   .next { right: 12px; }
   .lb-hint { text-align: center; font-size: 11px; color: rgba(242, 239, 235, 0.5); padding: 6px 12px 10px; }
+  .lb-failed code { user-select: text; font-size: 12px; }
 </style>

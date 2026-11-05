@@ -647,6 +647,13 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case ReconnectRequestType:
+      {
+        LOG_DEBUG("reconnect");
+        CWmReconnect(m_ConnId);
+      }
+      break;
+
     case ReinitRequestType:
       {
         LOG_DEBUG("reinit");

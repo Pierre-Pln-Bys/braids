@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { Archive, ArchiveRestore, Bell, BellOff, ChevronDown, ChevronUp, Images, LogOut, Search, Star, StarOff, Trash2, X } from '@lucide/svelte';
-  import { openLink } from '../lib/actions';
+  import { openLink, personMenu, viewPicture } from '../lib/actions';
   import * as api from '../lib/api';
   import { linkify } from '../lib/format';
   import { protocolMeta } from '../lib/protocols';
@@ -83,7 +83,13 @@
     </div>
     <div class="body scroll">
       <div class="identity">
-        <Avatar name={store.chatName(chat)} id={chat.id} size={76} {accountId} group={chat.isGroup} ring="var(--bg-1)" />
+        {#if store.avatar(accountId, chat.id)}
+          <button class="pic" aria-label="View profile picture" title="View profile picture" onclick={() => viewPicture(accountId, chat.id, store.chatName(chat))}>
+            <Avatar name={store.chatName(chat)} id={chat.id} size={76} {accountId} group={chat.isGroup} ring="var(--bg-1)" />
+          </button>
+        {:else}
+          <Avatar name={store.chatName(chat)} id={chat.id} size={76} {accountId} group={chat.isGroup} ring="var(--bg-1)" />
+        {/if}
         <div class="name">{store.chatName(chat)}</div>
         <div class="sub">
           <ProtocolBadge protocol={account.protocol} color={store.accountColor(accountId)} size={14} />
@@ -131,10 +137,17 @@
         {/if}
         <div class="members">
           {#each members.slice(0, membersOpen ? 200 : MEMBERS_SHOWN) as member (member.id)}
-            <div class="member">
-              <Avatar name={member.name || member.id} id={member.id} size={30} owner={accountId} online={store.isOnline(accountId, member.id)} ring="var(--bg-1)" />
-              <span class="member-name">{member.isSelf ? 'You' : member.name || member.id}</span>
-            </div>
+            {#if member.isSelf}
+              <div class="member">
+                <Avatar name={member.name || member.id} id={member.id} size={30} owner={accountId} online={store.isOnline(accountId, member.id)} ring="var(--bg-1)" />
+                <span class="member-name">You</span>
+              </div>
+            {:else}
+              <button class="member" onclick={(e) => ui.openMenu(e, personMenu(accountId, member.id, member.name || member.id))}>
+                <Avatar name={member.name || member.id} id={member.id} size={30} owner={accountId} online={store.isOnline(accountId, member.id)} ring="var(--bg-1)" />
+                <span class="member-name">{member.name || member.id}</span>
+              </button>
+            {/if}
           {/each}
           {#if membersOpen && members.length > 200}<div class="muted">and {members.length - 200} more</div>{/if}
         </div>
@@ -190,7 +203,9 @@
   .section { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
   .muted { font-size: 13px; color: var(--text-muted); }
   .members { display: flex; flex-direction: column; gap: 2px; margin-top: -6px; }
-  .member { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .member { display: flex; align-items: center; gap: 10px; padding: 5px 6px; margin: 0 -6px; width: calc(100% + 12px); border: 0; background: none; border-radius: var(--radius-md); text-align: left; color: var(--text); font-family: inherit; }
+  button.member:hover { background: var(--hover); }
+  .pic { border: 0; background: none; padding: 0; border-radius: 50%; cursor: zoom-in; }
   .member-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .media-head { display: flex; align-items: center; justify-content: space-between; }
   .media-head .link { border: 0; background: none; padding: 0; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--accent); }

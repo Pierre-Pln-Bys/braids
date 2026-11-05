@@ -1,0 +1,97 @@
+Changelog
+=========
+
+What changed in each braids release. The newest version is at the top. The
+release workflow publishes the section of a version as its release notes.
+
+## [Unreleased]
+
+## [0.3.0] - 2026-11-05
+
+### New
+- Messages you send show up at once. While an account is offline they wait,
+  greyed out with a clock, and go out as soon as it is back (also after
+  restarting braids). A message the messenger refuses is marked
+  "Not sent", with "Send again" and "Delete". (#10)
+- braids reconnects right after the computer wakes up or the network comes
+  back, instead of waiting for the connection to time out. Each account in
+  the sidebar shows its state with a dot (green online, amber connecting or
+  fetching, grey offline, red error), and its tooltip says when it was
+  last up to date. (#13)
+- Keyboard: Alt+J/K (and the arrow keys) move a highlight through the chat
+  list and the search results without opening anything. Enter opens the
+  highlighted chat and puts the cursor in the message box. New shortcut
+  "Back to chat list" (Alt+H or Alt+←). In a narrow window the list and
+  chat shortcuts switch back to the list. A click still opens a chat
+  directly. (#12)
+- An "Unread" folder (Ctrl+U) with the unread chats.
+- An unread chat opens at the "New messages" line, a read one at the
+  newest message.
+- Click a profile picture in the chat info to see it full size. In groups,
+  a click on someone's picture or name (or on a member in the chat info)
+  offers "View profile picture" and "Message privately".
+- Ctrl+N with no unread chat left closes the open chat. (#11)
+
+### Fixed
+- Videos (MP4 and others), GIF videos and video stickers play in the app.
+  Most MP4 videos also need GStreamer's libav plugin; the video viewer
+  names the package to install, and so does the install script.
+- Opening a chat with Enter from the search no longer puts an empty line
+  in the message box.
+- Ctrl+N clears the search and goes through all chats.
+- Closing the search in a chat (Esc or ×) puts the cursor back in the
+  message box.
+
+## [0.2.0] - 2026-11-02
+
+### New
+- Search the messages of all chats from the chat list (Ctrl+Space). Results
+  are highlighted, and opening one jumps to the message.
+- Stickers and GIFs show inline, including Telegram's animated stickers.
+- Previews for links in messages. They can be turned off in Settings.
+- An emoji picker in the composer, with search and recently used emoji.
+- A bar for pinned messages at the top of a chat.
+- Create new groups on Telegram, WhatsApp, Signal and Matrix.
+- Drag and drop files into a chat.
+- Ctrl+C copies text: the selection, or the message under the mouse.
+- Matrix: sign in with single sign-on (SSO and SAML) in the browser.
+- Rename accounts from the sidebar, for example "Matrix" to "Work".
+- Resize the chat list by dragging the divider. The sidebar has a collapse
+  button.
+- Favorites can be a folder, pinned at the top of the list, or both.
+- Start braids at login (Settings), optionally minimized to the tray.
+- braids tells you when a new version is available (Settings).
+- New packages: AppImage, Flatpak and ARM64 (aarch64) builds.
+
+### Fixed
+- Only one braids window runs at a time. Starting it again brings the
+  running window to the front.
+- Voice messages and audio files (Opus, m4a) that the window could not play
+  now play. If the system lacks the codec, they open in your audio player.
+- Matrix: lists keep their `-` bullets after a message is edited.
+- The selection color is visible in dark mode.
+- The app icon shows up in GNOME.
+
+## [0.1.0] - 2026-11-01
+
+The first release.
+
+- Telegram, WhatsApp, Signal and Matrix (with end-to-end encryption) in one
+  desktop app for Linux.
+- One chat list across all accounts, with folders for each messenger,
+  favorites, muting, archive and "mark unread".
+- Text with formatting, replies, reactions, @mentions, edit and delete.
+- Photos and videos with a built-in viewer and player, files, and voice
+  messages (play and record).
+- Forward messages from any messenger to any other.
+- Join groups by invite link. Group info, members and descriptions.
+- Shared media for each chat, read receipts, typing indicators,
+  notifications and an unread tray icon.
+- Keyboard shortcuts for everything, all of which can be changed. Light and
+  dark theme.
+- Install script, .deb package and a self-contained archive.
+
+[Unreleased]: https://github.com/pebll/braids/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pebll/braids/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/pebll/braids/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/pebll/braids/releases/tag/v0.1.0

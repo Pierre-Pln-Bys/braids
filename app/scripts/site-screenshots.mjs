@@ -60,7 +60,7 @@ async function addShowcaseAccounts(base) {
   for (let i = 0; i < 100 && (await call(base, 'accounts.list')).length < 4; i++) await sleep(100);
 }
 
-async function session(theme, shots) {
+async function session(theme, shots, video = null) {
   const confdir = fs.mkdtempSync(path.join(os.tmpdir(), 'braids-site-'));
   const daemon = spawn(braidsd, ['--confdir', confdir], { stdio: 'ignore' });
   process.env.BRAIDS_CONFDIR = confdir;
@@ -71,7 +71,11 @@ async function session(theme, shots) {
   const browser = await chromium.launch();
   try {
     await addShowcaseAccounts(base);
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+    const context = await browser.newContext(video
+      ? { viewport: { width: 1280, height: 800 }, recordVideo: { dir: video, size: { width: 1280, height: 800 } } }
+      : { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    const recordStart = Date.now();
     // the showcase accounts appear as the messengers they stand for
     await page.route('**/__braids/call', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -104,7 +108,9 @@ async function session(theme, shots) {
     // as while scrolling)
     await page.addStyleTag({ content: '.day { position: static !important; }' });
     await page.locator('.messages').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    if (video) fs.writeFileSync(path.join(video, 'start'), String((Date.now() - recordStart) / 1000));
     await shots(page);
+    await context.close(); // writes the video
   } finally {
     await browser.close();
     await server.close();
@@ -148,6 +154,66 @@ await session('dark', async (page) => {
   await saveClip(page, 'link-dark', ['[role=dialog][aria-labelledby=wizard-title]'], 0);
   await page.keyboard.press('Escape');
 });
+
+// the demo for the README: a short walk through the app, as a GIF
+// (needs ffmpeg; skipped with --no-demo)
+if (!args.includes('--no-demo')) {
+  const videoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'braids-demo-'));
+  const slowType = async (page, text) => { for (const ch of text) await page.keyboard.type(ch, { delay: 55 }); };
+  await session('dark', async (page) => {
+    await page.waitForTimeout(1500);
+    // one inbox, filtered by messenger
+    for (const name of ['WhatsApp', 'Signal']) {
+      await page.locator('.sidebar .item', { hasText: name }).first().click();
+      await page.waitForTimeout(1100);
+    }
+    await page.locator('.sidebar .item', { hasText: 'All chats' }).click();
+    await page.waitForTimeout(900);
+    // reply and react
+    await page.getByRole('option', { name: /The Office/ }).click();
+    await page.waitForTimeout(900);
+    const theirs = page.locator('.msg:not(.own)').last();
+    await theirs.hover();
+    await page.waitForTimeout(500);
+    await theirs.getByRole('button', { name: 'React', exact: true }).click();
+    await page.waitForTimeout(500);
+    await page.locator('.react-pop button').first().click();
+    await page.waitForTimeout(700);
+    await theirs.hover();
+    await theirs.getByRole('button', { name: 'Reply' }).click();
+    await slowType(page, 'On my way, saving a seat for you 🙂');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1200);
+    // forward to a chat on another messenger
+    await page.locator('.msg:not(.own)', { hasText: 'storm your village' }).click({ button: 'right' });
+    await page.waitForTimeout(500);
+    await page.getByRole('menuitem', { name: 'Forward…' }).click();
+    await page.waitForTimeout(1300);
+    const target = page.locator('[role=dialog][aria-labelledby=forward-title] .target').nth(2);
+    await target.hover();
+    await page.waitForTimeout(500);
+    await target.click();
+    await page.waitForTimeout(1800);
+    // search across all chats
+    await page.keyboard.press('Control+Space');
+    await page.waitForTimeout(300);
+    await slowType(page, 'streamers');
+    await page.waitForTimeout(1500);
+    await page.locator('.found .hit').first().click().catch(() => {});
+    await page.waitForTimeout(1400);
+  }, videoDir);
+  const webm = fs.readdirSync(videoDir).find((f) => f.endsWith('.webm'));
+  const gif = path.join(out, 'demo.gif');
+  const { execFileSync } = await import('node:child_process');
+  // from the loaded inbox on, 10 fps, 960 px, one palette
+  const start = fs.readFileSync(path.join(videoDir, 'start'), 'utf8');
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', start, '-i', path.join(videoDir, webm), '-vf',
+    'fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle',
+    gif]);
+  fs.rmSync(videoDir, { recursive: true, force: true });
+  console.log(`demo in ${gif}`);
+}
 
 console.log(`screenshots in ${out}`);
 process.exit(0);
