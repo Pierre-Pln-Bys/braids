@@ -896,7 +896,7 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 		if evt.Remove {
 			forgetAvatar(handler.connId, evt.JID.String())
 		}
-		WmGetAvatar(handler.connId, evt.JID.String())
+		WmGetAvatar(handler.connId, evt.JID.String(), false)
 
 	case *events.Pin:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
@@ -2918,6 +2918,43 @@ func WmUnlink(connId int) int {
 	}
 
 	LOG_DEBUG("unlink ok")
+	return 0
+}
+
+// WmReconnect drops the connection and connects again, in the background
+// (retried with a growing delay while there is no network).
+func WmReconnect(connId int) int {
+	client := GetClient(connId)
+	if client == nil || GetState(connId) != Connected {
+		return -1
+	}
+
+	go func() {
+		CWmClearStatus(connId, FlagOnline)
+		CWmSetStatus(connId, FlagConnecting)
+		client.Disconnect()
+		for attempt := 0; attempt < 10; attempt++ {
+			if GetClient(connId) != client {
+				return // logged out or re-initialized meanwhile
+			}
+
+			err := client.Connect()
+			if err == nil || errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+				LOG_DEBUG("reconnect ok")
+				return // online with the Connected event
+			}
+
+			LOG_WARNING(fmt.Sprintf("reconnect failed: %v", err))
+			delay := time.Duration(1<<attempt) * time.Second
+			if delay > 60*time.Second {
+				delay = 60 * time.Second
+			}
+			time.Sleep(delay)
+		}
+
+		CWmClearStatus(connId, FlagConnecting)
+	}()
+
 	return 0
 }
 

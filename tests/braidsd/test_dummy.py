@@ -90,6 +90,8 @@ def main():
 
         accounts = d.call("accounts.list")
         check([a["accountId"] for a in accounts] == [account_id], "accounts.list has the account")
+        check(d.call("accounts.reconnect")["count"] == 1, "reconnect all accounts")
+        expect_error(lambda: d.call("accounts.reconnect", {"accountId": "nope"}), 1, "reconnect unknown account")
 
         profile_dir = os.path.join(confdir, "profiles", account_id)
         mode = stat.S_IMODE(os.stat(profile_dir).st_mode)
@@ -125,8 +127,12 @@ def main():
 
         d.call("messages.send", {"accountId": account_id, "chatId": group["id"], "text": "hello",
                                  "quotedId": msgs[-1]["id"]})
-        own = d.wait_event("message.added", lambda p: p["text"] == "hello")
+        pending = d.wait_event("message.added", lambda p: p["text"] == "hello" and p.get("pending"))
+        check(pending["isOutgoing"] and pending["pending"] in ("waiting", "sending"), "sent message shown at once as pending")
+        own = d.wait_event("message.added", lambda p: p["text"] == "hello" and not p.get("pending"))
         check(own["isOutgoing"] and own["quoted"]["id"] == msgs[-1]["id"], "sent message echoed with quote")
+        d.wait_event("message.removed", lambda p: p["msgId"] == pending["id"])
+        check(True, "the pending message gives way to the echo")
         check(account["capabilities"]["editWindowSec"] == -1, "dummy edit window unlimited")
         d.call("messages.edit", {"accountId": account_id, "chatId": group["id"], "msgId": own["id"],
                                  "text": "hello!"})
@@ -141,6 +147,35 @@ def main():
         check(True, "delete applied")
         expect_error(lambda: d.call("messages.send", {"accountId": account_id, "chatId": group["id"]}),
                      -32602, "send without text or file rejected")
+
+        # outbox: offline, sending fails; the message waits and goes out on reconnect
+        chat = {"accountId": account_id, "chatId": group["id"]}
+        d.call("messages.send", {**chat, "text": "/offline 2"})
+        d.wait_event("account.state", lambda p: p["accountId"] == account_id and p["state"] != "online")
+        r = d.call("messages.send", {**chat, "text": "while offline"})
+        check(r["msgId"].startswith("braids-out-"), "send returns the local id")
+        waiting = d.wait_event("message.added", lambda p: p["id"] == r["msgId"])
+        check(waiting["pending"] == "waiting", "offline: the message waits")
+        page = d.call("messages.get", {**chat, "limit": 5})
+        check(any(m["id"] == r["msgId"] and m["pending"] == "waiting" for m in page["messages"]),
+              "the newest page lists the waiting message")
+        d.wait_event("account.state", lambda p: p["accountId"] == account_id and p["state"] == "online", timeout=10)
+        d.wait_event("message.added", lambda p: p["text"] == "while offline" and not p.get("pending"))
+        d.wait_event("message.removed", lambda p: p["msgId"] == r["msgId"])
+        check(True, "back online: sent, echoed, the pending one removed")
+
+        # a waiting message can be deleted; it is not sent later
+        expect_error(lambda: d.call("messages.resend", {**chat, "msgId": "braids-out-1"}), 3, "resend of an unknown message")
+        d.call("messages.send", {**chat, "text": "/offline 2"})
+        d.wait_event("account.state", lambda p: p["accountId"] == account_id and p["state"] != "online")
+        r2 = d.call("messages.send", {**chat, "text": "doomed"})
+        d.call("messages.delete", {**chat, "msgId": r2["msgId"]})
+        d.wait_event("message.removed", lambda p: p["msgId"] == r2["msgId"])
+        d.wait_event("account.state", lambda p: p["accountId"] == account_id and p["state"] == "online", timeout=10)
+        time.sleep(0.5)
+        page = d.call("messages.get", {**chat, "limit": 5})
+        check(not any(m["text"] == "doomed" for m in page["messages"]), "a deleted waiting message is not sent")
+        check(True, "an outbox message can be deleted")
         expect_error(lambda: d.call("messages.edit", {"accountId": account_id, "chatId": group["id"],
                                                       "msgId": msgs[-1]["id"], "text": "x"}),
                      4, "editing others' messages unsupported")
@@ -227,6 +262,19 @@ def main():
         expect_error(lambda: d.call("chats.createGroup", {"accountId": account_id, "name": " ", "userIds": ["Jim_0"]}),
                      -32602, "group without a name rejected")
 
+        # profile pictures: small ones for the avatars, the full-size one for the viewer
+        small = d.call("avatars.get", {"accountId": account_id, "ids": ["Pam_0"]})["avatars"].get("Pam_0")
+        if small is None:
+            small = d.wait_event("avatar.updated", lambda p: p["id"] == "Pam_0")["path"]
+        check(small and "-full" not in small, "small avatar")
+        r = d.call("avatars.getFull", {"accountId": account_id, "id": "Pam_0"})
+        full = r["path"] if "path" in r else d.wait_event("avatar.full", lambda p: p["id"] == "Pam_0")["path"]
+        check(full.endswith("Pam_0-full.svg") and os.path.exists(full), "avatar.full with the full-size picture")
+        check(d.call("avatars.getFull", {"accountId": account_id, "id": "Pam_0"}).get("path") == full,
+              "full-size picture answered from the cache")
+        d.call("avatars.getFull", {"accountId": account_id, "id": "Kevin_0"})
+        check(d.wait_event("avatar.full", lambda p: p["id"] == "Kevin_0")["path"] == "", "no picture: empty path")
+
         # braids' own mute setting, kept across restarts
         check(account["capabilities"]["muteChat"], "mute capability")
         check(not group["isMuted"], "group not muted initially")
@@ -236,6 +284,13 @@ def main():
         check(os.stat(os.path.join(profile_dir, "braids-chats.json")).st_mode & 0o077 == 0, "mute file private")
         expect_error(lambda: d.call("chats.mute", {"accountId": account_id, "chatId": "nope"}), 2,
                      "mute unknown chat rejected")
+        # a message waiting while offline is kept across a restart, then sent
+        d.call("messages.send", {"accountId": account_id, "chatId": group["id"], "text": "/offline 30"})
+        d.wait_event("account.state", lambda p: p["accountId"] == account_id and p["state"] != "online")
+        d.call("messages.send", {"accountId": account_id, "chatId": group["id"], "text": "kept for later"})
+        outbox_file = os.path.join(profile_dir, "braids-outbox.json")
+        wait_until(lambda: os.path.exists(outbox_file), "outbox written")
+        check(os.stat(outbox_file).st_mode & 0o077 == 0, "outbox file private")
         check(d.close() == 0, "clean exit")
 
         # restart: account is loaded from disk and logs in
@@ -244,6 +299,10 @@ def main():
         check([a["accountId"] for a in accounts] == [account_id], "account loaded after restart")
         wait_until(lambda: len(d.call("chats.list")) >= 2, "chats synced after restart")
         check(True, "chats available after restart")
+        wait_until(lambda: any(m["text"] == "kept for later" and not m.get("pending") for m in
+                               d.call("messages.get", {"accountId": account_id, "chatId": group["id"], "limit": 5})["messages"]),
+                   "the waiting message is sent after the restart")
+        wait_until(lambda: not os.path.exists(outbox_file), "outbox emptied")
         group = d.call("chats.get", {"accountId": account_id, "chatId": group["id"]})
         check(group["isMuted"], "mute kept after restart")
         d.call("chats.mute", {"accountId": account_id, "chatId": group["id"], "isMuted": False})

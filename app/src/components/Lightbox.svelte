@@ -12,6 +12,7 @@
 <script lang="ts">
   import { ChevronLeft, ChevronRight, ExternalLink, X, ZoomIn, ZoomOut } from '@lucide/svelte';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { store } from '../lib/store.svelte';
   import { ui } from '../lib/ui.svelte';
 
@@ -21,6 +22,8 @@
   const lb = $derived(ui.lightbox!);
   const item = $derived(lb.items[lb.index]);
   const count = $derived(lb.items.length);
+  // profile pictures: the small one until the full-size one has arrived
+  const path = $derived((item?.fullAvatar && store.fullAvatars[item.fullAvatar]) || item?.path);
 
   let scale = $state(1);
   let x = $state(0);
@@ -133,7 +136,7 @@
         <button class="icon-btn" aria-label="Zoom out" title="Zoom out (-)" onclick={() => zoomTo(scale / 1.5)} disabled={scale <= MIN}><ZoomOut size={19} /></button>
         <button class="icon-btn" aria-label="Zoom in" title="Zoom in (+)" onclick={() => zoomTo(scale * 1.5)} disabled={scale >= MAX}><ZoomIn size={19} /></button>
       {/if}
-      <button class="icon-btn" aria-label="Open with default app" title="Open with default app" onclick={() => api.openPath(item.path).catch((e) => store.toastError(e))}><ExternalLink size={19} /></button>
+      <button class="icon-btn" aria-label="Open with default app" title="Open with default app" onclick={() => api.openPath(path).catch((e) => store.toastError(e))}><ExternalLink size={19} /></button>
       <button class="icon-btn" aria-label="Close" title="Close (Esc)" onclick={close}><X size={20} /></button>
     </div>
     <div
@@ -151,17 +154,20 @@
         {#if videoFailed}
           <div class="lb-failed">
             <p>This video cannot be played here.</p>
-            <small>Playing H.264 videos needs GStreamer's codecs (e.g. gstreamer1.0-libav).</small>
+            <small>Most videos (MP4, H.264) need GStreamer's libav plugin:<br />
+              <code>sudo apt install gstreamer1.0-libav</code> (Debian, Ubuntu)<br />
+              <code>sudo dnf install gstreamer1-plugin-libav</code> (Fedora) · <code>sudo pacman -S gst-libav</code> (Arch)<br />
+              then restart braids.</small>
             <button class="btn" onclick={() => api.openPath(item.path).catch((e) => store.toastError(e))}><ExternalLink size={16} />Open in the video player</button>
           </div>
         {:else}
           {#key item.path}
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={api.fileUrl(item.path)} controls autoplay onerror={() => (videoFailed = true)}></video>
+            <video use:mediaSrc={{ path: item.path }} controls autoplay onerror={() => (videoFailed = true)}></video>
           {/key}
         {/if}
       {:else}
-        <img src={api.fileUrl(item.path)} alt={item.name} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
+        <img src={api.fileUrl(path)} alt={item.name} class:avatar={!!item.fullAvatar} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
       {/if}
       {#if count > 1}
         <button class="nav prev" aria-label="Previous image" title="Previous (← or k)" onclick={() => go(-1)} onpointerdown={(e) => e.stopPropagation()}><ChevronLeft size={26} /></button>
@@ -183,6 +189,7 @@
   .lb-stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0 64px; touch-action: none; cursor: default; }
   .lb-stage.zoomed { cursor: grab; }
   .lb-stage.zoomed:active { cursor: grabbing; }
+  .lb-stage img.avatar { width: min(640px, 100%); height: auto; }
   .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; user-select: none; transform-origin: center center; transition: transform 60ms linear; }
   .lb-stage video { max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; }
   .lb-failed { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #f2efeb; text-align: center; }
@@ -197,4 +204,5 @@
   .prev { left: 12px; }
   .next { right: 12px; }
   .lb-hint { text-align: center; font-size: 11px; color: rgba(242, 239, 235, 0.5); padding: 6px 12px 10px; }
+  .lb-failed code { user-select: text; font-size: 12px; }
 </style>

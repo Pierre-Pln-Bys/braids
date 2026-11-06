@@ -181,6 +181,7 @@ enum MessageType
   GetDescriptionRequestType, // braids extension
   JoinChatRequestType, // braids extension
   CreateGroupRequestType, // braids extension
+  ReconnectRequestType, // braids extension
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -532,6 +533,15 @@ public:
   virtual MessageType GetMessageType() const { return ReinitRequestType; }
 };
 
+// braids extension: drop the connection and connect again now, e.g. after
+// the computer woke up or the network came back (a connection that died
+// meanwhile is otherwise noticed only by a keep-alive timeout)
+class ReconnectRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return ReconnectRequestType; }
+};
+
 class FindMessageRequest : public RequestMessage
 {
 public:
@@ -553,12 +563,15 @@ public:
 
 // Profile picture of a user or chat (for a one-to-one chat the other user's),
 // answered with NewAvatarNotify. Protocols cache the image under their
-// profile dir and may answer from there.
+// profile dir and may answer from there. With full the picture in the best
+// resolution the protocol has (for the picture viewer), answered with a
+// NewAvatarNotify with full set; else a small one for the avatar circles.
 class GetAvatarRequest : public RequestMessage
 {
 public:
   virtual MessageType GetMessageType() const { return GetAvatarRequestType; }
   std::string id; // user id or chat id
+  bool full = false;
 };
 
 // Description of a group or a user's bio ("about"; for a one-to-one chat the
@@ -804,6 +817,7 @@ public:
   virtual MessageType GetMessageType() const { return NewAvatarNotifyType; }
   std::string id;
   std::string filePath;
+  bool full = false; // answers a GetAvatarRequest with full
 };
 
 class JoinChatNotify : public ServiceMessage

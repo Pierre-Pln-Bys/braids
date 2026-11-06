@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { AtSign, BellOff, LoaderCircle, Menu as MenuIcon, Search, SquarePen, WifiOff, X } from '@lucide/svelte';
-  import { untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { chatMenu } from '../lib/actions';
   import * as api from '../lib/api';
   import { listTime } from '../lib/format';
@@ -25,7 +25,7 @@
 
   let searchInput: HTMLInputElement | undefined = $state();
   let listEl: HTMLDivElement | undefined = $state();
-  let cursor = $state(-1); // keyboard cursor, distinct from selection
+  let sectionEl: HTMLElement | undefined = $state();
 
   const chats = $derived(store.chatList);
   const favoritesOnTop = $derived(settings.favorites !== 'folder' && store.filter.kind !== 'favorites' && !store.search.trim());
@@ -34,6 +34,7 @@
     const f = store.filter;
     if (f.kind === 'archived') return 'Archived';
     if (f.kind === 'favorites') return 'Favorites';
+    if (f.kind === 'unread') return 'Unread';
     if (f.kind === 'account') return store.accountName(f.accountId);
     return 'All chats';
   });
@@ -43,6 +44,7 @@
   });
 
   function open(c: Chat) {
+    ui.listCursor = '';
     store.openChat(chatKey(c.accountId, c.id));
     ui.focusComposer++;
   }
@@ -99,6 +101,8 @@
   }
 
   function openFound(m: Message) {
+    ui.listCursor = '';
+    ui.focusComposer++;
     const key = chatKey(m.accountId, m.chatId);
     store.openChat(key).then(() => {
       ui.jumpRequest = { chatKey: key, msgId: m.id };
@@ -114,37 +118,127 @@
     return { before: (start ? '…' : '') + flat.slice(start, i), match: flat.slice(i, i + q.length), after: flat.slice(i + q.length, i + q.length + 80) };
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (!chats.length) return;
-    if (e.key === 'ArrowDown' || e.key === 'j') {
-      cursor = Math.min(chats.length - 1, cursor + 1);
-    } else if (e.key === 'ArrowUp' || e.key === 'k') {
-      cursor = Math.max(0, cursor - 1);
-    } else if (e.key === 'Enter' && cursor >= 0) {
-      open(chats[cursor]);
-      return;
-    } else {
-      return;
+  // ---- keyboard highlight: chats, then message results ----
+  const hitKey = (m: Message) => `m\u0002${chatKey(m.accountId, m.chatId)}\u0001${m.id}`;
+  const keys = $derived([...chats.map((c) => chatKey(c.accountId, c.id)), ...found.map(hitKey)]);
+  const searchFocused = () => !!searchInput && document.activeElement === searchInput;
+
+  // The highlight is full blue while used, light otherwise: after a "go to"
+  // (on the first chat), and again after 10 s without moving it. Keyboard
+  // use hides the mouse hover until the mouse moves.
+  let cursorActive = $state(false);
+  let keyboardNav = $state(false);
+  let activeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function activate() {
+    cursorActive = true;
+    keyboardNav = true;
+    clearTimeout(activeTimer);
+    activeTimer = setTimeout(() => (cursorActive = false), 10000);
+  }
+
+  // moves the highlight; it starts at the highlighted or the open chat
+  function move(delta: number) {
+    activate();
+    if (!keys.length) return;
+    let i = keys.indexOf(ui.listCursor);
+    if (i < 0) i = keys.indexOf(store.current);
+    const next = i < 0 ? (delta > 0 ? 0 : keys.length - 1) : Math.max(0, Math.min(keys.length - 1, i + delta));
+    ui.listCursor = keys[next];
+    if (!searchFocused()) listEl?.focus({ preventScroll: true });
+    scrollToCursor();
+  }
+
+  function focusList() {
+    activate();
+    if (!keys.includes(ui.listCursor)) ui.listCursor = keys.includes(store.current) ? store.current : (keys[0] ?? '');
+    listEl?.focus({ preventScroll: true });
+    scrollToCursor();
+  }
+
+  function first() {
+    clearTimeout(activeTimer);
+    cursorActive = false;
+    keyboardNav = true;
+    ui.listCursor = keys[0] ?? '';
+    listEl?.focus({ preventScroll: true });
+    if (listEl) listEl.scrollTop = 0;
+  }
+
+  function scrollToCursor() {
+    queueMicrotask(() => listEl?.querySelector<HTMLElement>('.cursor')?.scrollIntoView({ block: 'nearest' }));
+  }
+
+  function openCursor(): boolean {
+    const k = ui.listCursor;
+    const c = chats.find((x) => chatKey(x.accountId, x.id) === k);
+    if (c) {
+      open(c);
+      return true;
     }
+    const m = found.find((x) => hitKey(x) === k);
+    if (m) {
+      openFound(m);
+      return true;
+    }
+    return false;
+  }
+
+  onMount(() => {
+    ui.list = { move, focus: focusList, first };
+  });
+  onDestroy(() => {
+    clearTimeout(activeTimer);
+    if (ui.list?.move === move) ui.list = null;
+  });
+
+  // typing a search highlights the first result
+  $effect(() => {
+    const q = store.search.trim();
+    const first = keys[0] ?? '';
+    untrack(() => {
+      if (q && searchFocused() && !keys.includes(ui.listCursor)) {
+        ui.listCursor = first;
+        activate();
+      }
+    });
+  });
+
+  // the highlight is shown while the list or its search has the focus
+  function onFocusOut(e: FocusEvent) {
+    const to = e.relatedTarget as Node | null;
+    if (!to || !sectionEl?.contains(to)) ui.listCursor = '';
+  }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // shortcuts
+    if (e.key === 'ArrowDown' || e.key === 'j') move(1);
+    else if (e.key === 'ArrowUp' || e.key === 'k') move(-1);
+    else if (e.key === 'Enter' && ui.listCursor) {
+      // the composer gets the focus: the Enter must not reach it
+      e.preventDefault();
+      openCursor();
+      return;
+    } else return;
     e.preventDefault();
-    listEl?.querySelectorAll<HTMLElement>('[role=option]')[cursor]?.scrollIntoView({ block: 'nearest' });
   }
 
   function onSearchKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       store.search = '';
+      ui.listCursor = '';
       searchInput?.blur();
-    } else if (e.key === 'ArrowDown') {
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      cursor = 0;
-      listEl?.focus();
-    } else if (e.key === 'Enter' && chats.length) {
-      open(chats[0]);
+      move(e.key === 'ArrowDown' ? 1 : -1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault(); // not a new line in the composer that gets the focus
+      if (!openCursor() && chats.length) open(chats[0]);
     }
   }
 </script>
 
-<section class="chatlist" aria-label="Chat list">
+<section class="chatlist" aria-label="Chat list" bind:this={sectionEl} onfocusout={onFocusOut}>
   <div class="head">
     <div class="title-row">
       {#if ui.narrow}
@@ -152,9 +246,9 @@
       {/if}
       <h2>{title}</h2>
       {#if store.syncStatus === 'updating'}
-        <span class="sync" role="status" title="Fetching the latest messages"><LoaderCircle size={13} class="spin" />Updating…</span>
+        <span class="sync" role="status" title={store.syncDetail}><LoaderCircle size={13} class="spin" />{store.syncLabel}</span>
       {:else if store.syncStatus === 'offline'}
-        <span class="sync" role="status" title="No network: chats may be outdated"><WifiOff size={13} />Offline</span>
+        <span class="sync" role="status" title={store.syncDetail}><WifiOff size={13} />Offline</span>
       {/if}
       <button class="icon-btn" aria-label="New chat" title="New chat" onclick={() => (ui.newChatOpen = true)} disabled={!store.accountList.length}>
         <SquarePen size={19} strokeWidth={1.75} />
@@ -183,8 +277,10 @@
     aria-label="Chats"
     tabindex="0"
     bind:this={listEl}
+    class:kbd={keyboardNav}
+    class:soft={!cursorActive}
+    onpointermove={() => (keyboardNav = false)}
     onkeydown={onKey}
-    onblur={() => (cursor = -1)}
   >
     {#each chats as c, i (chatKey(c.accountId, c.id))}
       {@const key = chatKey(c.accountId, c.id)}
@@ -194,7 +290,7 @@
       <div
         class="row"
         class:selected
-        class:cursor={i === cursor}
+        class:cursor={key === ui.listCursor}
         class:unread={c.isUnread && !store.eventsOnly(c)}
         class:muted={c.isMuted}
         class:fav-end={favEnd}
@@ -202,7 +298,7 @@
         aria-selected={selected}
         tabindex="-1"
         onclick={() => open(c)}
-        onkeydown={(e) => e.key === 'Enter' && open(c)}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); open(c); } }}
         oncontextmenu={(e) => { e.preventDefault(); ui.openMenu(e, chatMenu(c)); }}
       >
         <Avatar name={store.chatName(c)} id={c.id} accountId={c.accountId} group={c.isGroup} ring={selected ? 'var(--selected)' : 'var(--bg-1)'}
@@ -243,6 +339,8 @@
           {#if !msgQuery}<p>No chats match “{store.search}”.</p>{/if}
         {:else if store.filter.kind === 'archived'}
           <p>No archived chats.</p>
+        {:else if store.filter.kind === 'unread'}
+          <p><b>All caught up.</b><br />No unread chats.</p>
         {:else if store.filter.kind === 'favorites'}
           <p><b>No favorites yet.</b><br />Right-click a chat and choose “Add to favorites”.</p>
         {:else if store.accountList.length}
@@ -258,7 +356,7 @@
         {#each found as m (`${m.accountId}\u0001${m.chatId}\u0001${m.id}`)}
           {@const c = store.chats[chatKey(m.accountId, m.chatId)]}
           {@const sn = snippet(m.text, msgQuery)}
-          <button class="hit" onclick={() => openFound(m)}>
+          <button class="hit" class:cursor={hitKey(m) === ui.listCursor} tabindex="-1" onclick={() => openFound(m)}>
             <Avatar name={store.chatName(c)} id={c.id} accountId={c.accountId} group={c.isGroup} size={36} ring="var(--bg-1)" />
             <span class="body">
               <span class="line1"><span class="name">{store.chatName(c)}</span><span class="grow"></span><span class="time">{listTime(m.time)}</span></span>
@@ -306,7 +404,10 @@
   .row { display: flex; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 10px; cursor: default; flex-shrink: 0; }
   .row:hover { background: var(--hover); }
   .row.selected { background: var(--selected); }
-  .row.cursor { box-shadow: inset 0 0 0 2px var(--focus); }
+  .row.cursor, .hit.cursor { box-shadow: inset 0 0 0 2px var(--focus); transition: box-shadow var(--duration-slow, .4s) var(--ease, ease); }
+  .list.soft .row.cursor, .list.soft .hit.cursor { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--focus) 35%, transparent); }
+  /* keyboard use: no mouse hover until the mouse moves */
+  .list.kbd .row:hover:not(.selected), .list.kbd .hit:hover { background: none; }
   .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .line1, .line2 { display: flex; align-items: center; gap: 5px; }
   .name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

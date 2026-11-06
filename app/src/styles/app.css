@@ -102,10 +102,10 @@ textarea.input { height: auto; padding: 10px 12px; resize: none; line-height: 20
 .toggle[aria-checked='true']::after { transform: translateX(16px); }
 .toggle:disabled { opacity: 0.5; }
 
-.segmented { display: inline-flex; padding: 2px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); }
+.segmented { display: inline-flex; flex-shrink: 0; padding: 2px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); }
 .segmented button {
   border: 0; background: transparent; height: 28px; padding: 0 10px; border-radius: var(--radius-sm);
-  display: inline-flex; gap: 6px; align-items: center; color: var(--text-2); font-size: 13px;
+  display: inline-flex; gap: 6px; align-items: center; color: var(--text-2); font-size: 13px; white-space: nowrap;
 }
 .segmented button[aria-pressed='true'] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-1); }
 

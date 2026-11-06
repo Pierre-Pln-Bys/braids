@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.9.0`. The API is JSON-RPC 2.0
+Status: draft, API version `0.11.0`. The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -84,7 +84,16 @@ muted chat); with neither known, `unreadCount` is 1. `isUnread` is also true for
      "file": {"id", "path", "name", "mimeType", "kind": "" | "sticker" | "gif",
               "status": "none|notDownloaded|downloading|downloaded|failed"} | null,
      "reactions": {"counts": {emoji: n}, "senders": {userId: emoji}, "own": emoji},
-     "mentions": {displayName: userId}, "link", "system"}
+     "mentions": {displayName: userId}, "link", "system",
+     "pending"?: "waiting" | "sending" | "failed"}
+
+`pending` is set on own messages braidsd has not handed to the messenger
+yet (its outbox; ids start with `braids-out-`): `waiting` while the account
+is not online (sent when it is back, also after a restart), `sending` until
+the messenger's own copy arrives (then `message.removed` for the pending one
+and `message.added` for the real one), `failed` when the messenger refused
+it (`messages.resend` or `messages.delete`). The outbox is kept in
+`<profile>/braids-outbox.json` (readable by the user only).
 
 `system` is non-empty for group events (someone joined, left, was added,
 renamed the group, ...): a phrase to follow the sender's name, e.g.
@@ -117,6 +126,7 @@ Methods
 | `accounts.add` | `protocol` | `{setupId}`, then `account.auth` events, see below |
 | `accounts.authInput` | `setupId` or `accountId`, `field`, `value` | `{}`; error 5 if no input for `field` is pending |
 | `accounts.authCancel` | `setupId` or `accountId` | `{}` |
+| `accounts.reconnect` | `accountId`? (all without) | `{count}`: the accounts asked to drop their connection and connect again now (after the computer woke up or the network came back; a dead connection is otherwise noticed only by a keep-alive timeout). Their state goes through `connecting` as usual |
 | `accounts.remove` | `accountId` | `{}`, then `account.removed` |
 | `chats.list` | `accountId`?, `includeArchived`? (false) | `[Chat]` sorted: pinned, then recent activity |
 | `chats.get` | `accountId`, `chatId` | `Chat` |
@@ -131,14 +141,16 @@ Methods
 | `chats.delete` | `accountId`, `chatId` | `{}`, then `chat.removed` (Matrix: leave + forget) |
 | `contacts.list` | `accountId` | `[Contact]` |
 | `avatars.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, avatars: {id: path}}` with the known ones (`""`: no picture); the others are fetched once per session and arrive as `avatar.updated` |
+| `avatars.getFull` | `accountId`, `id` | `{accountId, id, path?}`: the full-size picture (picture viewer) when already fetched; else it is fetched and arrives as `avatar.full` |
 | `descriptions.get` | `accountId`, `ids` ([user or chat id]) | `{accountId, descriptions: {id: text}}` (group description or user bio; for a one-to-one chat the other user's) with the known ones (`""`: none); the others are fetched once per session and arrive as `description.updated` |
 | `media.list` | `kind` (`media`: images and videos, stickers not included, `files`, `links`, `pinned`: pinned messages), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`? (ms, from `nextBefore`), `limit`? (60, max 200) | `{items: [Message] newest first, nextBefore}` (`nextBefore` 0: no more); from the history cache and the loaded messages, `files.download` works for these too |
 | `messages.search` | `text` (case-insensitive for ASCII letters), `accountId`? and `chatId`? (all chats/accounts without), `beforeTime`?, `limit`? (40, max 200) | `{items: [Message] newest first, nextBefore}` like `media.list`; group events are left out |
 | `members.get` | `accountId`, `chatId` | `{accountId, chatId, members: [Contact]}` (async) |
 | `messages.get` | `accountId`, `chatId`, `fromMsgId`? (latest), `limit`? (30) | `{accountId, chatId, fromMsgId, messages: [Message] oldest first, timedOut}` (async, from cache or server) |
-| `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute), `isVoice`? (false; the file, Ogg/Opus, is sent as a voice note: WhatsApp PTT, Telegram voice note, Signal voice message, Matrix MSC3245 voice) | `{}`; the message arrives as `message.added` |
+| `messages.send` | `accountId`, `chatId`, `text`?, `quotedId`?, `filePath`? (absolute), `isVoice`? (false; the file, Ogg/Opus, is sent as a voice note: WhatsApp PTT, Telegram voice note, Signal voice message, Matrix MSC3245 voice) | `{msgId}`: the local id of the pending message, which arrives at once as `message.added` with `pending` (see Message) |
+| `messages.resend` | `accountId`, `chatId`, `msgId` (a `failed` pending message) | `{}`, then `message.updated` |
 | `messages.edit` | `accountId`, `chatId`, `msgId`, `text` | `{}` (error 4 outside the edit window) |
-| `messages.delete` | `accountId`, `chatId`, `msgId` | `{}`, then `message.removed` |
+| `messages.delete` | `accountId`, `chatId`, `msgId` | `{}`, then `message.removed` (a pending message is only dropped from the outbox) |
 | `messages.pin` | `accountId`, `chatId`, `msgId`, `isPinned`? (true) | `{}`, then `message.updated` (error 4 if unsupported, see `capabilities.pinMessage`) |
 | `messages.markRead` | `accountId`, `chatId`, `msgId` | `{}`; marks the chat read up to `msgId` |
 | `messages.find` | `accountId`, `chatId`, `text`, `fromMsgId`? | `{found, msgId}` (async, searches the local cache) |
@@ -172,12 +184,13 @@ Events
 | `chat.moved` | `{accountId, chatId, newChatId}` (e.g. Telegram group upgraded) |
 | `contacts.updated` | `{accountId, fullSync, contacts: [Contact]}` |
 | `avatar.updated` | `{accountId, id, path}` (local image file, `""` if none; also sent when a picture changes) |
+| `avatar.full` | `{accountId, id, path}`: answers `avatars.getFull` (the small picture when the protocol has no bigger one, `""` if none) |
 | `description.updated` | `{accountId, id, description}` (plain text, `""` if none; also sent when it changes) |
 | `members.updated` | `{accountId, chatId, members: [Contact]}` |
 | `message.added` | `Message` |
 | `message.updated` | `Message` |
 | `message.removed` | `{accountId, chatId, msgId}` |
-| `message.sendFailed` | `{accountId, chatId}` |
+| `message.sendFailed` | `{accountId, chatId}` (a send not from `messages.send`; those become `failed` pending messages) |
 | `typing` | `{accountId, chatId, userId, userName, isTyping}` |
 | `presence` | `{accountId, userId, isOnline, timeSeen}` |
 | `notification` | `{accountId, chatId, msgId, chatName, senderName, isGroup, hasMention, text, hasFile}` |

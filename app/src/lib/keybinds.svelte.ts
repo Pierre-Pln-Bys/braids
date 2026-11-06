@@ -15,6 +15,7 @@ import { settings } from './settings.svelte';
 
 export type Action =
   | 'goAll'
+  | 'goUnread'
   | 'goFavorites'
   | 'goMatrix'
   | 'goSignal'
@@ -23,6 +24,7 @@ export type Action =
   | 'nextChat'
   | 'prevChat'
   | 'nextUnread'
+  | 'focusList'
   | 'searchChats'
   | 'searchInChat'
   | 'editLast'
@@ -31,8 +33,8 @@ export type Action =
   | 'textSizeDecrease'
   | 'textSizeReset'
   | 'settings'
-  | 'shortcuts'; 
-  
+  | 'shortcuts';
+
 export type ActionGroup = 'goto' | 'action';
 
 export const GROUPS: { id: ActionGroup; label: string }[] = [
@@ -42,13 +44,15 @@ export const GROUPS: { id: ActionGroup; label: string }[] = [
 
 export const ACTIONS: { id: Action; group: ActionGroup; label: string; defaults: string[] }[] = [
   { id: 'goAll', group: 'goto', label: 'All chats', defaults: ['Mod+A'] },
+  { id: 'goUnread', group: 'goto', label: 'Unread', defaults: ['Mod+U'] },
   { id: 'goFavorites', group: 'goto', label: 'Favorites', defaults: ['Mod+B'] },
   { id: 'goMatrix', group: 'goto', label: 'Matrix account', defaults: ['Mod+M'] },
   { id: 'goSignal', group: 'goto', label: 'Signal account', defaults: ['Mod+S'] },
   { id: 'goTelegram', group: 'goto', label: 'Telegram account', defaults: ['Mod+T'] },
   { id: 'goWhatsApp', group: 'goto', label: 'WhatsApp account', defaults: ['Mod+W'] },
-  { id: 'nextChat', group: 'goto', label: 'Next chat', defaults: ['Alt+ArrowDown', 'Alt+J'] },
-  { id: 'prevChat', group: 'goto', label: 'Previous chat', defaults: ['Alt+ArrowUp', 'Alt+K'] },
+  { id: 'nextChat', group: 'goto', label: 'Highlight next chat', defaults: ['Alt+ArrowDown', 'Alt+J'] },
+  { id: 'prevChat', group: 'goto', label: 'Highlight previous chat', defaults: ['Alt+ArrowUp', 'Alt+K'] },
+  { id: 'focusList', group: 'goto', label: 'Back to chat list', defaults: ['Alt+ArrowLeft', 'Alt+H'] },
   { id: 'nextUnread', group: 'goto', label: 'Next unread chat', defaults: ['Mod+N'] },
   { id: 'searchChats', group: 'action', label: 'Search chats', defaults: ['Mod+Space'] },
   { id: 'searchInChat', group: 'action', label: 'Search in chat', defaults: ['Mod+F'] },
@@ -81,14 +85,18 @@ const MODIFIER_KEYS = new Set(['Control', 'Meta', 'Alt', 'Shift', 'AltGraph', 'C
 export function comboOf(e: KeyboardEvent): string {
   if (MODIFIER_KEYS.has(e.key)) return '';
   // the key as the system layout names it (Ctrl+A is the key labelled A on
-  // AZERTY too); the physical key only when the layout gives no plain letter
-  // or digit for a letter / digit key: non-latin layouts, Option+letter
-  // symbols on macOS, the AZERTY digit row
+  // AZERTY too, Ctrl+, the key that types "," on any layout); the physical
+  // (US) position only where the layout types no ASCII character there:
+  // non-latin letters (Cyrillic, Greek, ...), Option+letter symbols on macOS,
+  // and the AZERTY digit row (&, é, ", ... on the digit keys)
   let key: string;
-  const physical = /^Key([A-Z])$/.exec(e.code) ?? /^Digit([0-9])$/.exec(e.code);
+  const letter = /^Key([A-Z])$/.exec(e.code);
+  const digit = /^Digit([0-9])$/.exec(e.code);
+  const ascii = e.key.length === 1 && e.key >= ' ' && e.key <= '~';
   if (e.key === ' ' || e.code === 'Space') key = 'Space';
   else if (/^[a-z0-9]$/i.test(e.key)) key = e.key.toUpperCase();
-  else if (physical) key = physical[1];
+  else if (digit) key = digit[1];
+  else if (letter && !ascii) key = letter[1];
   else if (e.key.length === 1) key = e.key.toUpperCase();
   else key = e.key;
   const parts: string[] = [];

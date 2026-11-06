@@ -27,7 +27,7 @@
 #include "timeutil.h"
 
 // semver of the API; clients must match the major version
-static const std::string s_ApiVersion = "0.9.0";
+static const std::string s_ApiVersion = "0.11.0";
 static const int64_t s_StartTime = TimeUtil::GetCurrentTimeMSec();
 
 static const char* AuthStepToString(AuthStep p_Step)
@@ -293,6 +293,29 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
     AuthCancel(params);
     p_Reply.Ok(json::object());
   }
+  else if (p_Method == "accounts.reconnect")
+  {
+    // all accounts, or one; after the computer woke up or the network changed
+    const std::string accountId = ParamStrOpt(params, "accountId");
+    if (!accountId.empty() && !m_Accounts.count(accountId))
+    {
+      throw ApiException(ApiErrorUnknownAccount, "unknown account");
+    }
+
+    int count = 0;
+    for (auto& account : m_Accounts)
+    {
+      if (!account.second.isReady || !account.second.protocol) continue;
+
+      if (!accountId.empty() && (account.first != accountId)) continue;
+
+      account.second.protocol->SendRequest(std::make_shared<ReconnectRequest>());
+      ++count;
+    }
+
+    LOG_INFO("reconnect %d accounts", count);
+    p_Reply.Ok(json{ { "count", count } });
+  }
   else if (p_Method == "accounts.remove")
   {
     RemoveAccount(ParamStr(params, "accountId"));
@@ -361,9 +384,15 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
   }
   else if (p_Method == "messages.send")
   {
-    m_ChatModel->SendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
-                             ParamStrOpt(params, "text"), ParamStrOpt(params, "quotedId"),
-                             ParamStrOpt(params, "filePath"), ParamBool(params, "isVoice", false));
+    const std::string msgId =
+      m_ChatModel->SendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"),
+                               ParamStrOpt(params, "text"), ParamStrOpt(params, "quotedId"),
+                               ParamStrOpt(params, "filePath"), ParamBool(params, "isVoice", false));
+    p_Reply.Ok(json{ { "msgId", msgId } });
+  }
+  else if (p_Method == "messages.resend")
+  {
+    m_ChatModel->ResendMessage(ParamStr(params, "accountId"), ParamStr(params, "chatId"), ParamStr(params, "msgId"));
     p_Reply.Ok(json::object());
   }
   else if (p_Method == "messages.edit")
@@ -464,6 +493,10 @@ void Core::Dispatch(const std::string& p_Method, const json& p_Params, const Rep
     const std::string accountId = ParamStr(params, "accountId");
     p_Reply.Ok((p_Method == "avatars.get") ? m_ChatModel->GetAvatars(accountId, ids)
                                            : m_ChatModel->GetDescriptions(accountId, ids));
+  }
+  else if (p_Method == "avatars.getFull")
+  {
+    p_Reply.Ok(m_ChatModel->GetFullAvatar(ParamStr(params, "accountId"), ParamStr(params, "id")));
   }
   else if (p_Method == "members.get")
   {
@@ -664,6 +697,7 @@ void Core::OnSetupDone(const std::string& p_SetupId, bool p_Success, const std::
 
     const bool isOnline = ((Status::GetProfile(p_ProfileId) & Status::FlagOnline) != 0);
     account.state = isOnline ? "online" : "connecting";
+    m_ChatModel->SetAccountOnline(p_ProfileId, isOnline);
     EmitDirect("account.added", json{ { "setupId", p_SetupId }, { "account", AccountToJson(account) } });
     return;
   }
@@ -880,6 +914,10 @@ void Core::SetAccountState(Account& p_Account, const std::string& p_State, const
 
   p_Account.state = p_State;
   p_Account.error = p_Error;
+  if (m_ChatModel)
+  {
+    m_ChatModel->SetAccountOnline(p_Account.id, p_State == "online");
+  }
   Emit("account.state", json{ { "accountId", p_Account.id }, { "state", p_State }, { "error", p_Error },
                               { "syncing", p_Account.syncing } });
 }

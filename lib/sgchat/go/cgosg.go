@@ -12,7 +12,7 @@ package main
 // extern void SgNewContactsNotify(int p_ConnId, char* p_ChatId, char* p_Name, char* p_Phone, int p_IsSelf, int p_IsAlias, int p_Notify);
 // extern void SgNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, int p_IsArchived, int p_LastMessageTime);
 // extern void SgNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
-// extern void SgNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+// extern void SgNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath, int p_Full);
 // extern void SgNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 // extern void SgCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);
 // extern void SgNewMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe, char* p_QuotedId, char* p_FileId, char* p_FilePath, int p_FileStatus, int p_TimeSent, int p_IsRead, int p_IsEdited);
@@ -90,8 +90,8 @@ func CSgSendMessage(connId int, chatId *C.char, text *C.char, quotedId *C.char, 
 }
 
 //export CSgGetAvatar
-func CSgGetAvatar(connId int, avatarId *C.char) int {
-	return SgGetAvatar(connId, C.GoString(avatarId))
+func CSgGetAvatar(connId int, avatarId *C.char, full int) int {
+	return SgGetAvatar(connId, C.GoString(avatarId), full != 0)
 }
 
 //export CSgGetDescription
@@ -172,8 +172,12 @@ func CSgNewChatsNotify(connId int, chatId string, isUnread int, isMuted int, isP
 	C.SgNewChatsNotify(C.int(connId), C.CString(chatId), C.int(isUnread), C.int(isMuted), C.int(isPinned), C.int(isArchived), C.int(lastMessageTime))
 }
 
-func CSgNewAvatarNotify(connId int, avatarId string, filePath string) {
-	C.SgNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath))
+func CSgNewAvatarNotify(connId int, avatarId string, filePath string, full bool) {
+	fullInt := 0
+	if full {
+		fullInt = 1
+	}
+	C.SgNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath), C.int(fullInt))
 }
 
 func CSgNewDescriptionNotify(connId int, id string, description string) {

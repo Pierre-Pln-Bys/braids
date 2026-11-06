@@ -74,8 +74,14 @@ into a tarball, a .deb and (`--appimage`) an AppImage (`utils/dist/AppRun`
 runs braidsd from a cache copy, it outlives the mount);
 `utils/dist/flatpak/` wraps the tarball into a Flatpak (GNOME runtime);
 `utils/dist/install.sh` installs the tarball per user; tag `v*` runs
-`.github/workflows/release.yml` (both arches, all formats). Website: `site/` (GitHub Pages,
-`.github/workflows/pages.yml`).
+`.github/workflows/release.yml` (both arches, all formats; release notes are
+the version's section of `CHANGELOG.md`: add user-facing changes under
+`[Unreleased]` and rename it to the version before tagging). Test builds:
+`.github/workflows/preview.yml` publishes every pull request as the
+pre-release `pr-<N>` (`install.sh --pr N`; `--branch NAME` after running it
+by hand on a branch), deleted when the pull request closes. Website: `site/` (GitHub Pages,
+`.github/workflows/pages.yml`); screenshots and the README demo GIF
+(`site/img/demo.gif`) come from `app/scripts/site-screenshots.mjs`.
 
 ## Conventions
 
@@ -120,3 +126,14 @@ Scheduled-later features are in `doc/BACKLOG.md`.
   (`src-tauri/src/linkpreview.rs`, no local/LAN addresses). Adding a request
   or notify type to `protocol.h` shifts the enum: rebuild all protocol
   libraries (`make`, not only `make braidsd`).
+- Outbox: `messages.send` queues in `ChatModel` (`OutboxEntry`, ids
+  `braids-out-…`, `<profile>/braids-outbox.json`), emitted as pending
+  messages; the request's `chatMessage.id` carries the local id back in
+  `SendMessageNotify`; the echo is matched by text/file name
+  (`MatchOutboxEcho`). Dummy: `/offline N`, `/fail` for tests.
+- Reconnect: `ReconnectRequest` / `accounts.reconnect`, called by the app on
+  wake (timer gap) and when the network returns.
+- Media: WebKitGTK does not play media from the `asset:` protocol; videos and
+  audio go through blob URLs (`app/src/lib/media.ts`, `use:mediaSrc`).
+- Chat list keyboard: one highlight (`ui.listCursor`, `ui.list`), Alt+J/K
+  move it, Enter opens.

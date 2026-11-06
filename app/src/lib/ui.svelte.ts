@@ -27,6 +27,7 @@ export interface LightboxItem {
   path: string;
   name: string;
   video?: boolean; // played in the viewer instead of shown
+  fullAvatar?: string; // profile picture (chat key): shown in full size once fetched
 }
 
 class Ui {
@@ -57,6 +58,14 @@ class Ui {
   focusSearch = $state(0);
   textSizeNotice = $state(0);
   private textSizeNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+  // the chat list's keyboard highlight (Alt+J/K, arrows): a chat key, or a
+  // message search result ("m\u0002" + chat key + "\u0001" + id); opened with
+  // Enter. Shown while the chat list or its search has the focus.
+  listCursor = $state('');
+  // set by the mounted chat list
+  // move: highlight the next / previous; focus: at the open chat; first: a
+  // light highlight on the first chat (after a "go to")
+  list: { move(delta: number): void; focus(): void; first(): void } | null = null;
 
   get narrow(): boolean {
     return this.width < 900;

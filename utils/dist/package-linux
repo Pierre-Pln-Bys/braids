@@ -81,6 +81,10 @@ install -m 0644 app/src-tauri/icons/128x128@2x.png "${TREE}/share/icons/hicolor/
 sed "s|@EXEC@|braids|" utils/dist/braids.desktop.in > "${TREE}/share/applications/braids.desktop"
 install -m 0644 utils/dist/install.sh "${TREE}/share/braids-install.sh"
 echo "${VERSION}" > "${TREE}/share/braids-version"
+# test builds of a pull request or branch say what they are (install.sh shows it)
+if [[ -n "${BRAIDS_BUILD:-}" ]]; then
+  echo "${BRAIDS_BUILD}" > "${TREE}/share/braids-build"
+fi
 
 # sanity check: every library resolves inside the tree or the system
 if ldd "${TREE}/bin/braidsd" "${TREE}"/lib/*.so | grep -q "not found"; then

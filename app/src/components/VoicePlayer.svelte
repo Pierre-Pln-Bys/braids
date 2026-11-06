@@ -17,6 +17,7 @@
   import { LoaderCircle, Pause, Play, TriangleAlert } from '@lucide/svelte';
   import { onDestroy } from 'svelte';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { store } from '../lib/store.svelte';
 
   let { path, id, status, onDownload }: {
@@ -35,31 +36,10 @@
   let duration = $state(0);
   let speed = $state(1);
   let failed = $state(false);
-  // the file as served; on an error once more as a blob typed audio/ogg (the
-  // desktop app's file protocol serves Opus as audio/opus, which WebKitGTK
-  // may refuse although it plays the same data as Ogg)
-  let blobSrc = $state('');
-  const src = $derived(blobSrc || (path ? api.fileUrl(path) : ''));
-  let retried = false;
-  let blobUrl = '';
-
-  async function onError() {
-    if (retried || !path) {
-      failed = true;
-      return;
-    }
-    retried = true;
-    try {
-      const data = await (await fetch(api.fileUrl(path))).arrayBuffer();
-      const lower = path.toLowerCase();
-      const type = lower.endsWith('.mp3') ? 'audio/mpeg' : lower.endsWith('.m4a') || lower.endsWith('.aac') ? 'audio/mp4'
-        : lower.endsWith('.wav') ? 'audio/wav' : lower.endsWith('.webm') ? 'audio/webm' : 'audio/ogg';
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-      blobUrl = URL.createObjectURL(new Blob([data], { type }));
-      blobSrc = blobUrl;
-    } catch {
-      failed = true;
-    }
+  // the file comes as a blob typed by its name (lib/media.ts); Opus voice
+  // notes are typed audio/ogg, which WebKitGTK plays
+  function onError() {
+    failed = true;
   }
 
   function openExternally() {
@@ -142,7 +122,6 @@
   onDestroy(() => {
     if (playing === audio) playing = null;
     audio?.pause();
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
   });
 </script>
 
@@ -170,7 +149,7 @@
   {#if path}
     <audio
       bind:this={audio}
-      {src}
+      use:mediaSrc={{ path, type: 'audio/ogg' }}
       preload="metadata"
       onloadedmetadata={onMeta}
       ontimeupdate={() => audio && (current = audio.currentTime)}

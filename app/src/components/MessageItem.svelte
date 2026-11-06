@@ -9,9 +9,10 @@
   groups, quote, attachment, reactions, hover actions.
 -->
 <script lang="ts">
-  import { Check, CheckCheck, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
-  import { copyText, openLink } from '../lib/actions';
+  import { Check, CheckCheck, Clock, Copy, Download, FileText, Forward, LoaderCircle, Pencil, Pin, PinOff, Play, Reply, RotateCw, SmilePlus, Trash2, TriangleAlert } from '@lucide/svelte';
+  import { copyText, openLink, personMenu } from '../lib/actions';
   import * as api from '../lib/api';
+  import { mediaSrc } from '../lib/media';
   import { firstLink, isOnlyEmoji, renderText, senderColor, timeOfDay } from '../lib/format';
   import { settings } from '../lib/settings.svelte';
   import { chatKey, fileMime, fileReady, galleryItems, store } from '../lib/store.svelte';
@@ -55,7 +56,7 @@
   const ready = $derived(fileReady(m.file));
   const emojiOnly = $derived(!m.file && !m.quoted && !m.isDeleted && isOnlyEmoji(m.text));
   const showText = $derived(!!m.text && !(isSticker && stickerEmoji));
-  const previewUrl = $derived(settings.linkPreviews && !m.isDeleted && !m.file ? firstLink(m.text) : '');
+  const previewUrl = $derived(settings.linkPreviews && !m.isDeleted && !m.file && !m.pending ? firstLink(m.text) : '');
   const html = $derived(m.isDeleted ? '' : renderText(m.text, m.mentions, account.selfId));
   const reactions = $derived(Object.entries(m.reactions.counts).filter(([, n]) => n > 0));
   const mentionsMe = $derived(!own && (m.hasMention || Object.values(m.mentions).includes(account.selfId)));
@@ -144,6 +145,17 @@
     ui.focusComposer++;
   }
 
+  // ---- outbox: not yet sent ----
+  const pending = $derived(m.pending ?? '');
+
+  function resend() {
+    api.call('messages.resend', { accountId: m.accountId, chatId: m.chatId, msgId: m.id }).catch((e) => store.toastError(e));
+  }
+
+  function discard() {
+    api.call('messages.delete', { accountId: m.accountId, chatId: m.chatId, msgId: m.id }).catch((e) => store.toastError(e));
+  }
+
   async function remove() {
     if (m.isDeleted) {
       await api.call('messages.delete', { accountId: m.accountId, chatId: m.chatId, msgId: m.id }).catch((e) => store.toastError(e));
@@ -182,6 +194,13 @@
   // right-click menu: everything
   export function menuItems(): MenuItem[] {
     if (m.isDeleted) return [{ label: 'Remove', icon: Trash2, danger: true, run: remove }];
+    if (pending) {
+      const items: MenuItem[] = [];
+      if (pending === 'failed') items.push({ label: 'Send again', icon: RotateCw, run: resend });
+      if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => copyText(m.text, 'Copied') });
+      items.push({ label: pending === 'failed' ? 'Delete' : 'Cancel sending', icon: Trash2, danger: true, run: discard });
+      return items;
+    }
     const items: MenuItem[] = [{ label: 'Reply', icon: Reply, run: reply }];
     if (editState.show) items.push({ label: 'Edit', icon: Pencil, run: edit, disabled: !editState.ok, hint: editState.reason });
     if (m.text) items.push({ label: 'Copy text', icon: Copy, run: () => copyText(m.text, 'Copied') });
@@ -190,6 +209,13 @@
     if (account.capabilities.pinMessage) items.push(pinItem());
     if (own) items.push({ label: 'Delete for everyone', icon: Trash2, danger: true, run: remove });
     return items;
+  }
+
+  // a click on the avatar or name of a sender in a group
+  function openPerson(e: MouseEvent) {
+    e.stopPropagation();
+    const items = personMenu(m.accountId, m.senderId, store.senderName(m));
+    if (items.length) ui.openMenu(e, items);
   }
 
   function showMenu(e: MouseEvent) {
@@ -220,6 +246,8 @@
   class:first
   class:last
   class:highlight={ui.highlightId === m.id}
+  class:pending={!!pending}
+  class:failed={pending === 'failed'}
   data-msg-id={m.id}
   oncontextmenu={showMenu}
   onmouseenter={() => (ui.hoverMessage = m)}
@@ -229,7 +257,9 @@
 >
   {#if showAvatar}
     {#if last}
-      <Avatar name={store.senderName(m)} id={m.senderId} size={30} owner={m.accountId} />
+      <button class="who" aria-label={`${store.senderName(m)}: options`} onclick={(e) => openPerson(e)}>
+        <Avatar name={store.senderName(m)} id={m.senderId} size={30} owner={m.accountId} />
+      </button>
     {:else}
       <span class="avatar-space"></span>
     {/if}
@@ -246,7 +276,7 @@
       class:sticker={isSticker}
     >
       {#if showName}
-        <div class="sender" style:color={senderColor(m.senderId)}>{store.senderName(m)}</div>
+        <button class="sender" style:color={senderColor(m.senderId)} onclick={(e) => openPerson(e)}>{store.senderName(m)}</button>
       {/if}
 
       {#if m.quoted}
@@ -263,7 +293,7 @@
           <!-- a GIF (a video without sound): plays muted and looping in the chat -->
           <button class="image gif" onclick={openFile} aria-label="Open GIF {m.file.name}">
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={api.fileUrl(m.file.path)} autoplay loop muted playsinline onerror={() => (videoFailed = true)}></video>
+            <video use:mediaSrc={{ path: m.file.path, type: m.file.mimeType, lazy: true }} autoplay loop muted playsinline onerror={() => (videoFailed = true)}></video>
             <span class="gif-badge">GIF</span>
           </button>
         {:else if isImage && ready}
@@ -277,7 +307,7 @@
           <!-- the first frame; plays in the viewer -->
           <button class="image video-thumb" onclick={openFile} aria-label="Play video {m.file.name}">
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={`${api.fileUrl(m.file.path)}#t=0.1`} preload="metadata" muted onerror={() => (videoFailed = true)}></video>
+            <video use:mediaSrc={{ path: m.file.path, type: m.file.mimeType, fragment: '#t=0.1', lazy: true }} preload="metadata" muted onerror={() => (videoFailed = true)}></video>
             <span class="play-mark"><Play size={22} fill="currentColor" /></span>
           </button>
         {:else}
@@ -310,7 +340,13 @@
         {#if m.isPinned}<Pin size={11} />{/if}
         {#if m.isEdited && !m.isDeleted}<span>edited</span>{/if}
         <span>{timeOfDay(m.time)}</span>
-        {#if own && !m.isDeleted}
+        {#if pending === 'sending'}
+          <span class="ticks" title="Sending…" aria-label="Sending"><LoaderCircle size={13} class="spin" /></span>
+        {:else if pending === 'waiting'}
+          <span class="ticks" title="Waiting for the connection; sent when the account is back online" aria-label="Waiting for the connection"><Clock size={13} /></span>
+        {:else if pending === 'failed'}
+          <span class="ticks failed-mark" title="Not sent" aria-label="Not sent"><TriangleAlert size={13} /></span>
+        {:else if own && !m.isDeleted}
           <span class="ticks" class:read={m.isRead} title={m.isRead ? 'Read' : 'Sent'} aria-label={m.isRead ? 'Read' : 'Sent'}>
             {#if m.isRead}<CheckCheck size={14} />{:else}<Check size={14} />{/if}
           </span>
@@ -328,7 +364,15 @@
       </div>
     {/if}
 
-    {#if !m.isDeleted}
+    {#if pending === 'failed'}
+      <div class="not-sent" role="alert">
+        <TriangleAlert size={13} />Not sent
+        <button class="link-btn" onclick={resend}>Send again</button>
+        <button class="link-btn" onclick={discard}>Delete</button>
+      </div>
+    {/if}
+
+    {#if !m.isDeleted && !pending}
       <div class="actions" class:row={lines <= 1} role="toolbar" aria-label="Message actions" aria-orientation={lines <= 1 ? 'horizontal' : 'vertical'}>
         <button class="icon-btn sm" bind:this={reactBtn} onclick={() => onReact(m, reactBtn!)} title="React" aria-label="React"><SmilePlus size={17} /></button>
         <button class="icon-btn sm" onclick={reply} title="Reply" aria-label="Reply"><Reply size={17} /></button>
@@ -364,7 +408,9 @@
   .bubble.has-image { padding: 4px 4px 7px; }
   .bubble.has-image .text, .bubble.has-image .sender, .bubble.has-image .quote { margin-left: 7px; margin-right: 7px; }
 
-  .sender { font-size: 13px; font-weight: 650; margin-bottom: 2px; }
+  .sender { font-size: 13px; font-weight: 650; margin-bottom: 2px; display: block; border: 0; background: none; padding: 0; text-align: left; font-family: inherit; cursor: pointer; }
+  .sender:hover { text-decoration: underline; }
+  .who { border: 0; background: none; padding: 0; border-radius: 50%; cursor: pointer; align-self: flex-end; }
   .deleted-text { font-style: italic; }
 
   .quote {
@@ -431,4 +477,10 @@
   .msg:hover .actions, .actions:focus-within { display: flex; }
   .actions.row { flex-direction: row; }
   .actions .danger:hover { color: var(--danger); }
+  .msg.pending .bubble { opacity: 0.6; }
+  .msg.failed .bubble { opacity: 0.75; box-shadow: inset 0 0 0 1px var(--danger); }
+  .failed-mark { color: var(--danger); }
+  .not-sent { display: flex; align-items: center; gap: 6px; justify-content: flex-end; font-size: 12px; color: var(--danger); margin-top: 3px; }
+  .link-btn { border: 0; background: none; padding: 0 2px; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .link-btn:hover { text-decoration: underline; }
 </style>

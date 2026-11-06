@@ -61,8 +61,9 @@ func saveAvatarIndex(connId int, index map[string]avatarEntry) {
 
 // WmGetAvatar answers with CWmNewAvatarNotify: the cached picture when
 // WhatsApp reports it unchanged, else a freshly downloaded preview (small)
-// picture, or an empty path when there is none or it is hidden from us.
-func WmGetAvatar(connId int, avatarId string) int {
+// picture (with full the full-size one, cached apart), or an empty path when
+// there is none or it is hidden from us.
+func WmGetAvatar(connId int, avatarId string, full bool) int {
 	go func() {
 		// requests can arrive before the connection is up
 		for i := 0; (i < 240) && (GetState(connId) != Connected); i++ {
@@ -75,25 +76,30 @@ func WmGetAvatar(connId int, avatarId string) int {
 		}
 
 		avatarQueue <- struct{}{}
-		path := getAvatar(connId, client, avatarId)
+		path := getAvatar(connId, client, avatarId, full)
 		time.Sleep(150 * time.Millisecond)
 		<-avatarQueue
 
-		CWmNewAvatarNotify(connId, avatarId, path)
+		CWmNewAvatarNotify(connId, avatarId, path, full)
 	}()
 
 	return 0
 }
 
-func getAvatar(connId int, client *whatsmeow.Client, avatarId string) string {
+func getAvatar(connId int, client *whatsmeow.Client, avatarId string, full bool) string {
 	jid, err := types.ParseJID(avatarId)
 	if err != nil {
 		return ""
 	}
 
+	key := avatarId
+	if full {
+		key += "#full"
+	}
+
 	avatarMutex.Lock()
 	index := loadAvatarIndex(connId)
-	entry, known := index[avatarId]
+	entry, known := index[key]
 	avatarMutex.Unlock()
 	if known {
 		if _, err := os.Stat(entry.File); err != nil {
@@ -101,7 +107,7 @@ func getAvatar(connId int, client *whatsmeow.Client, avatarId string) string {
 		}
 	}
 
-	params := &whatsmeow.GetProfilePictureParams{Preview: true}
+	params := &whatsmeow.GetProfilePictureParams{Preview: !full}
 	if known {
 		params.ExistingID = entry.PictureID
 	}
@@ -111,6 +117,7 @@ func getAvatar(connId int, client *whatsmeow.Client, avatarId string) string {
 	info, err := client.GetProfilePictureInfo(ctx, jid, params)
 	if errors.Is(err, whatsmeow.ErrProfilePictureNotSet) || errors.Is(err, whatsmeow.ErrProfilePictureUnauthorized) {
 		forgetAvatar(connId, avatarId)
+		forgetAvatar(connId, avatarId+"#full")
 		return ""
 	} else if err != nil {
 		LOG_WARNING(fmt.Sprintf("get profile picture failed %s: %v", avatarId, err))
@@ -126,7 +133,7 @@ func getAvatar(connId int, client *whatsmeow.Client, avatarId string) string {
 		return ""
 	}
 
-	sum := sha256.Sum256([]byte(avatarId))
+	sum := sha256.Sum256([]byte(key))
 	file := avatarDir(connId) + "/" + hex.EncodeToString(sum[:12]) + ".jpg"
 	if err := downloadAvatar(ctx, info.URL, file); err != nil {
 		LOG_WARNING(fmt.Sprintf("download profile picture failed %s: %v", avatarId, err))
@@ -134,7 +141,7 @@ func getAvatar(connId int, client *whatsmeow.Client, avatarId string) string {
 	}
 
 	avatarMutex.Lock()
-	index[avatarId] = avatarEntry{PictureID: info.ID, File: file}
+	index[key] = avatarEntry{PictureID: info.ID, File: file}
 	saveAvatarIndex(connId, index)
 	avatarMutex.Unlock()
 	return file

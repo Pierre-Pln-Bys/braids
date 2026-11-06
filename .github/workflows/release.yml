@@ -162,10 +162,28 @@ jobs:
       with:
         path: dist
         merge-multiple: true
+    - name: Release notes from CHANGELOG.md
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        # the section of this version, without its heading
+        awk -v v="$version" '
+          /^## \[/ { if (on) exit; on = index($0, "## [" v "]") == 1; next }
+          /^\[[^]]*\]: / { if (on) exit }
+          on' CHANGELOG.md > notes.md
+        if [ ! -s notes.md ]; then
+          echo "::warning::no section for ${version} in CHANGELOG.md"
+          echo "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)." > notes.md
+        fi
+        cat >> notes.md <<EOF
+
+        **Install or update:** \`curl -fsSL https://pebll.github.io/braids/install.sh | sh\`, or pick a package below (.deb, Flatpak, AppImage, archive; x86_64 and ARM64).
+        EOF
+        cat notes.md
     - name: Publish release
       uses: softprops/action-gh-release@v2
       with:
         draft: false
+        body_path: notes.md
         generate_release_notes: true
         files: |
           dist/*.tar.gz

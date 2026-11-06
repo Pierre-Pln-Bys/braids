@@ -13,7 +13,7 @@ package main
 // extern void WmNewContactsNotify(int p_ConnId, char* p_ChatId, char* p_Name, char* p_Phone, int p_IsSelf, int p_IsAlias, int p_Notify);
 // extern void WmNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, int p_IsArchived, int p_LastMessageTime);
 // extern void WmNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
-// extern void WmNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath);
+// extern void WmNewAvatarNotify(int p_ConnId, char* p_Id, char* p_FilePath, int p_Full);
 // extern void WmNewDescriptionNotify(int p_ConnId, char* p_Id, char* p_Description);
 // extern void WmJoinChatNotify(int p_ConnId, char* p_Link, int p_Success, char* p_ChatId, char* p_Error);
 // extern void WmCreateGroupNotify(int p_ConnId, char* p_Name, int p_Success, char* p_ChatId, char* p_Error);
@@ -67,6 +67,11 @@ func CWmUnlink(connId int) int {
 	return WmUnlink(connId)
 }
 
+//export CWmReconnect
+func CWmReconnect(connId int) int {
+	return WmReconnect(connId)
+}
+
 //export CWmLogout
 func CWmLogout(connId int) int {
 	return WmLogout(connId)
@@ -98,8 +103,8 @@ func CWmGetGroupMembers(connId int, chatId *C.char) int {
 }
 
 //export CWmGetAvatar
-func CWmGetAvatar(connId int, avatarId *C.char) int {
-	return WmGetAvatar(connId, C.GoString(avatarId))
+func CWmGetAvatar(connId int, avatarId *C.char, full int) int {
+	return WmGetAvatar(connId, C.GoString(avatarId), full != 0)
 }
 
 //export CWmJoinChat
@@ -180,8 +185,12 @@ func CWmNewChatsNotify(connId int, chatId string, isUnread int, isMuted int, isP
 	C.WmNewChatsNotify(C.int(connId), C.CString(chatId), C.int(isUnread), C.int(isMuted), C.int(isPinned), C.int(isArchived), C.int(lastMessageTime))
 }
 
-func CWmNewAvatarNotify(connId int, avatarId string, filePath string) {
-	C.WmNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath))
+func CWmNewAvatarNotify(connId int, avatarId string, filePath string, full bool) {
+	fullInt := 0
+	if full {
+		fullInt = 1
+	}
+	C.WmNewAvatarNotify(C.int(connId), C.CString(avatarId), C.CString(filePath), C.int(fullInt))
 }
 
 func CWmJoinChatNotify(connId int, link string, success bool, chatId string, errText string) {

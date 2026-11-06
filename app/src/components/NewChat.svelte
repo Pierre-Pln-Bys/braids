@@ -273,7 +273,7 @@
   .cname small { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { color: var(--text-muted); font-size: 13px; text-align: center; }
   .modes { display: flex; gap: 4px; padding: 3px; border-radius: var(--radius-md); background: var(--surface-2); }
-  .modes button { flex: 1; height: 30px; border: 0; border-radius: calc(var(--radius-md) - 2px); background: none; font-size: 13px; color: var(--text-2); }
+  .modes button { flex: 1 1 auto; white-space: nowrap; padding: 0 10px; height: 30px; border: 0; border-radius: calc(var(--radius-md) - 2px); background: none; font-size: 13px; color: var(--text-2); }
   .modes button[aria-selected='true'] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-1); }
   .join { display: flex; flex-direction: column; gap: 10px; }
   .join .btn { align-self: flex-end; }
