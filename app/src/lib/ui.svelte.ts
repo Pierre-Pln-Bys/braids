@@ -55,6 +55,8 @@ class Ui {
   focusComposer = $state(0); // bump to focus
   recordingKeys = $state(false); // a shortcut is being recorded in Settings
   focusSearch = $state(0);
+  textSizeNotice = $state(0);
+  private textSizeNoticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   get narrow(): boolean {
     return this.width < 900;
@@ -74,6 +76,12 @@ class Ui {
     const x = 'clientX' in e ? e.clientX : e.x;
     const y = 'clientY' in e ? e.clientY : e.y;
     this.menu = { x, y, items, leftOf };
+  }
+
+  showTextSize(size: number) {
+    this.textSizeNotice = size;
+    clearTimeout(this.textSizeNoticeTimer);
+    this.textSizeNoticeTimer = setTimeout(() => (this.textSizeNotice = 0), 5000);
   }
 
   highlight(id: string) {

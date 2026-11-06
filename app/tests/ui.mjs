@@ -629,6 +629,30 @@ try {
     await page.locator('[data-action=searchChats] .combo').count() === 1, 'reset all restores the defaults');
   await shot('settings-keyboard');
   await page.getByRole('button', { name: 'General' }).click();
+  await page.getByLabel('Text size preset').selectOption('110');
+  check(await page.evaluate(() => document.getElementById('app')?.style.zoom) === '1.1',
+    'text size setting scales the interface');
+  check(await page.locator('.text-size-notice', { hasText: 'Text size: 110 %' }).count() === 1,
+    'text size change shows its current value');
+  check(await page.evaluate(() => JSON.parse(localStorage.getItem('braids.settings.v1')).textSize === 110),
+    'text size is remembered');
+  await page.getByLabel('Text size preset').selectOption('100');
+  const zoomShortcut = (key, code = key) => page.evaluate(([k, c]) => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: c, ctrlKey: true, bubbles: true, cancelable: true }));
+  }, [key, code]);
+  await zoomShortcut('+', 'Equal');
+  check(await page.evaluate(() => document.getElementById('app')?.style.zoom) === '1.1',
+    'Ctrl+Plus increases text size');
+  check(await page.locator('.text-size-notice', { hasText: 'Text size: 110 %' }).count() === 1,
+    'Ctrl+Plus shows the current value');
+  await zoomShortcut('-', 'Minus');
+  check(await page.evaluate(() => document.getElementById('app')?.style.zoom) === '1',
+    'Ctrl+Minus decreases text size');
+  await zoomShortcut('0', 'Digit0');
+  check(await page.evaluate(() => document.getElementById('app')?.style.zoom) === '1',
+    'Ctrl+0 resets text size');
+  await page.locator('.text-size-notice').waitFor({ state: 'detached', timeout: 6000 });
+  check(true, 'text size notice disappears after five seconds');
   await page.getByRole('button', { name: 'Dark' }).click();
   check(await page.evaluate(() => document.documentElement.classList.contains('t-dark')), 'dark theme applied');
   await shot('settings-dark');
@@ -781,7 +805,7 @@ try {
   await page.locator('main.conv header', { hasText: 'Road trip' }).waitFor();
   check(await page.getByRole('option', { name: /Road trip/ }).count() === 1, 'new group created and opened');
   await shot('new-group');
-  await page.keyboard.press('Control+,');
+  await page.getByRole('button', { name: 'Settings' }).click();
 
   // remove account
   await page.getByRole('button', { name: 'Accounts' }).click();
