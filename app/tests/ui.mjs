@@ -275,6 +275,11 @@ try {
   await page.getByRole('option', { name: /Michael/ }).click();
   await page.waitForFunction(() => [...document.querySelectorAll('.msg .image img')].some((img) => img.naturalWidth > 0));
   check(true, 'sent image shown inline');
+  await page.locator('.msg.own', { has: page.locator('.image') }).last().click({ button: 'right' });
+  check(await page.getByRole('menuitem', { name: 'Copy image' }).count() === 1, 'photo menu offers Copy image');
+  await page.getByRole('menuitem', { name: 'Copy image' }).click();
+  await page.locator('.toast', { hasText: 'Copied' }).waitFor();
+  check(true, 'Copy image shows confirmation');
 
   // a pasted photo is previewed as a small tile before sending
   await page.evaluate(async () => {

@@ -10,6 +10,7 @@
     "core:webview:allow-set-webview-zoom",
     "autostart:default",
     "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-write-image",
     "dialog:allow-open",
     "notification:default",
     {

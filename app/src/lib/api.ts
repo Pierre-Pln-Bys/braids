@@ -74,6 +74,30 @@ export async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
 
+export async function copyImage(path: string): Promise<void> {
+  const response = await fetch(fileUrl(path));
+  if (!response.ok) throw new Error(`Could not read image (${response.status})`);
+  const blob = await response.blob();
+  if (isTauri) {
+    const { writeImage } = await import('@tauri-apps/plugin-clipboard-manager');
+    await writeImage(new Uint8Array(await blob.arrayBuffer()));
+    return;
+  }
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    throw new Error('Image clipboard is not supported by this browser');
+  }
+  const image = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  canvas.getContext('2d')!.drawImage(image, 0, 0);
+  image.close();
+  const png = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Could not encode image')), 'image/png');
+  });
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+}
+
 // ---- updates and start at login (desktop app only) ----
 
 export interface Update {
