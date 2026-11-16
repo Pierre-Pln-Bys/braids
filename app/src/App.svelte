@@ -160,7 +160,7 @@
     if (!accounts.length) return false;
     const f = store.filter;
     const i = f.kind === 'account' ? accounts.findIndex((a) => a.accountId === f.accountId) : -1;
-    store.filter = { kind: 'account', accountId: accounts[(i + 1) % accounts.length].accountId };
+    store.setFilter({ kind: 'account', accountId: accounts[(i + 1) % accounts.length].accountId });
     return true;
   }
 
@@ -214,16 +214,16 @@
         setTextSize(0, 100);
         return true;
       case 'goAll':
-        store.filter = { kind: 'all' };
+        store.setFilter({ kind: 'all' });
         goTo();
         return true;
       case 'goUnread':
-        store.filter = { kind: 'unread' };
+        store.setFilter({ kind: 'unread' });
         goTo();
         return true;
       case 'goFavorites':
         if (settings.favorites === 'top') return false;
-        store.filter = { kind: 'favorites' };
+        store.setFilter({ kind: 'favorites' });
         goTo();
         return true;
       case 'goMatrix':

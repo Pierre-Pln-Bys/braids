@@ -27,7 +27,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from braidsclient import Braidsd  # noqa: E402
+from braidsclient import ApiError, Braidsd  # noqa: E402
 
 SKIP = 77
 
@@ -365,12 +365,21 @@ def main():
         inv = d.call("chats.get", {"accountId": account_id, "chatId": inv_room})
         check(inv["lastMessage"]["id"] == f"invite:{inv_room}" and inv["lastMessage"]["system"] == "invited you"
               and not inv["name"].startswith("["), "invite: a system line, the plain room name")
+        check(inv["isInvite"], "invite: chat flagged isInvite")
+        try:
+            d.call("messages.send", {"accountId": account_id, "chatId": inv_room, "text": "hello?"})
+            check(False, "sending to an invited room refused")
+        except ApiError as e:
+            check("join it first" in str(e), "sending to an invited room refused: join first")
         d.call("chats.join", {"accountId": account_id, "link": inv_room})
         joined = d.wait_event("chat.joined", lambda p: p["link"] == inv_room, timeout=60)
         check(joined["success"] and joined["chatId"] == inv_room, "invite accepted from braids")
         wait_until(lambda: (lambda c: c["lastMessage"] is None or not c["lastMessage"]["id"].startswith("invite:"))(
             d.call("chats.get", {"accountId": account_id, "chatId": inv_room})), "invite note gone after joining", timeout=60)
         check(True, "invite note gone after joining")
+        wait_until(lambda: not d.call("chats.get", {"accountId": account_id, "chatId": inv_room})["isInvite"],
+                   "isInvite cleared after joining", timeout=60)
+        check(True, "isInvite cleared after joining")
         dec_room = bob_peer.cmd(f"create {alice_id} plain declined")["room"]
         wait_until(lambda: [c for c in d.call("chats.list") if c["id"] == dec_room], "second invite listed", timeout=60)
         d.call("chats.delete", {"accountId": account_id, "chatId": dec_room})

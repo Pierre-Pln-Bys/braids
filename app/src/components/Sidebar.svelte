@@ -26,7 +26,7 @@
   const archivedCount = $derived(store.unreadCount({ kind: 'archived' }));
 
   function select(f: Filter) {
-    store.filter = f;
+    store.setFilter(f);
     ui.drawerOpen = false;
   }
 

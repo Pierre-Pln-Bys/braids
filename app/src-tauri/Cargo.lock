@@ -332,6 +332,7 @@ name = "braids"
 version = "0.3.5"
 dependencies = [
  "gstreamer",
+ "gtk",
  "serde",
  "serde_json",
  "tauri",

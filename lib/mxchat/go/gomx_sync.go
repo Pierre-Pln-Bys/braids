@@ -468,7 +468,7 @@ func (conn *MxConn) handleJoinedRoom(ctx context.Context, roomID id.RoomID, room
 	// chat and name
 	name := conn.roomName(ctx, roomID)
 	conn.updateContact(string(roomID), name)
-	CMxNewChatsNotify(conn.connId, string(roomID), BoolToInt(unread), BoolToInt(muted), BoolToInt(pinned), lastTs)
+	CMxNewChatsNotify(conn.connId, string(roomID), BoolToInt(unread), BoolToInt(muted), BoolToInt(pinned), 0, lastTs)
 	if !initial && (prevPinned != pinned) {
 		CMxUpdatePinNotify(conn.connId, string(roomID), BoolToInt(pinned), lastTs)
 	}
@@ -535,7 +535,7 @@ func (conn *MxConn) handleInvitedRoom(roomID id.RoomID, room *mautrix.SyncInvite
 
 	name := conn.roomName(ctx, roomID)
 	conn.updateContact(string(roomID), name)
-	CMxNewChatsNotify(conn.connId, string(roomID), 1, 0, 0, lastTs)
+	CMxNewChatsNotify(conn.connId, string(roomID), 1, 0, 0, 1, lastTs)
 
 	// synthetic, local-only message for the invite: "<inviter> invited you"
 	// (a system line); the app offers Join / Decline for it (chats.join with

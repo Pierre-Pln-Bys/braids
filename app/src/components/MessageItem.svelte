@@ -253,8 +253,11 @@
     const names = Object.entries(m.reactions.senders)
       .filter(([, e]) => e === emoji)
       .map(([id]) => store.contacts[m.accountId]?.[id]?.name || id);
-    if (m.reactions.own === emoji) names.unshift('You');
-    return names.length ? names.join(', ') : `${m.reactions.counts[emoji]}`;
+    if (m.reactions.own === emoji && !names.includes('You')) names.unshift('You');
+    // Telegram names at most three recent senders per reaction (none in big groups)
+    const n = m.reactions.counts[emoji] ?? names.length;
+    if (!names.length) return `${n} ${n === 1 ? 'reaction' : 'reactions'}`;
+    return names.length < n ? `${names.join(', ')} and ${n - names.length} more` : names.join(', ');
   }
 </script>
 

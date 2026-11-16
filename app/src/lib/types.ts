@@ -95,6 +95,7 @@ export interface Chat {
   id: string;
   name: string;
   isGroup: boolean;
+  isInvite?: boolean; // invited, not joined yet (Matrix)
   isUnread: boolean;
   isUnreadMention: boolean;
   isMuted: boolean;

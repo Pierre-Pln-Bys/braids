@@ -1043,7 +1043,7 @@ void MxNewContactsNotify(int p_ConnId, char* p_Id, char* p_Name, int p_IsSelf, i
   free(p_Name);
 }
 
-void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned,
+void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, int p_IsInvite,
                       long long p_LastMessageTime)
 {
   MxChat* instance = MxChat::GetInstance(p_ConnId);
@@ -1054,6 +1054,7 @@ void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMute
     chatInfo.isUnread = (p_IsUnread == 1);
     chatInfo.isMuted = (p_IsMuted == 1);
     chatInfo.isPinned = (p_IsPinned == 1);
+    chatInfo.isInvite = (p_IsInvite == 1);
     chatInfo.lastMessageTime = static_cast<int64_t>(p_LastMessageTime);
 
     std::shared_ptr<NewChatsNotify> newChatsNotify = std::make_shared<NewChatsNotify>(instance->GetProfileId());

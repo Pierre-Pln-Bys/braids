@@ -56,7 +56,7 @@ func MxGetChats(connId int) int {
 
 	for _, c := range chats {
 		CMxNewChatsNotify(conn.connId, string(c.roomID), BoolToInt(c.ri.Unread || c.ri.IsInvite),
-			BoolToInt(c.ri.Muted), BoolToInt(c.ri.Pinned), c.ri.LastTs)
+			BoolToInt(c.ri.Muted), BoolToInt(c.ri.Pinned), BoolToInt(c.ri.IsInvite), c.ri.LastTs)
 	}
 
 	return 0

@@ -31,6 +31,9 @@ url = "2"
 # voice message recording (Ogg/Opus via GStreamer, which WebKitGTK uses anyway)
 [target.'cfg(target_os = "linux")'.dependencies]
 gstreamer = "0.23"
+# opening links with an activation token, so the browser comes to the front
+# (the version Tauri's webkit2gtk uses)
+gtk = "0.18"
 
 [profile.release]
 codegen-units = 1

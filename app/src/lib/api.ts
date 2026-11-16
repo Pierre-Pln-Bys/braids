@@ -285,6 +285,15 @@ export async function openPath(path: string): Promise<void> {
 
 export async function openUrl(url: string): Promise<void> {
   if (isTauri) {
+    // the browser comes to the front (src-tauri open_link); xdg-open through
+    // the opener plugin if that fails
+    const { invoke } = await import('@tauri-apps/api/core');
+    try {
+      await invoke('open_link', { url });
+      return;
+    } catch (e) {
+      console.warn('open_link failed, using the opener', e);
+    }
     const { openUrl } = await import('@tauri-apps/plugin-opener');
     await openUrl(url);
   } else {

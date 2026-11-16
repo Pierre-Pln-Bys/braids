@@ -158,6 +158,11 @@ Scheduled-later features are in `doc/BACKLOG.md`.
   to AAC first (`voice::to_aac`, Signal on iPhone plays no Ogg).
 - Chat list keyboard: one highlight (`ui.listCursor`, `ui.list`), Alt+J/K
   move it, Enter opens.
+- Links: `api.openUrl` → `open_link` (src-tauri/src/lib.rs), GIO with GDK's
+  launch context so the browser gets an activation token / startup id and
+  comes to the front; the opener plugin is the fallback.
+- Matrix invites: `ChatInfo.isInvite` (mxchat `RoomInfo.IsInvite`), API
+  `chat.isInvite`; the app shows `InviteBar`, `messages.send` refuses.
 - Group members: `EditMembersRequest` / `EditMembersNotify` (protocol.h,
   `FeatureEditMembers`, Matrix only: invite / kick), API `members.add`,
   `members.remove`, `members.edited`; `NewGroupMembersNotify.canAdd` /

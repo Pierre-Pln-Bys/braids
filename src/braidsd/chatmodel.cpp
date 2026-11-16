@@ -1968,6 +1968,12 @@ std::string ChatModel::SendMessage(const std::string& p_AccountId, const std::st
                                    const std::string& p_FilePath, bool p_IsVoice, const json& p_Poll)
 {
   AccountState& account = GetAccountOrThrow(p_AccountId);
+  auto invited = account.chatInfos.find(p_ChatId);
+  if ((invited != account.chatInfos.end()) && invited->second.isInvite)
+  {
+    throw ApiException(ApiErrorFailed, "You are invited to this room: join it first.");
+  }
+
   std::string poll;
   if (!p_Poll.is_null())
   {
@@ -3208,6 +3214,7 @@ json ChatModel::ChatToJson(const std::string& p_AccountId, const ChatInfo& p_Cha
     { "isMuted", IsMuted(m_Accounts[p_AccountId], p_ChatInfo) },
     { "isPinned", p_ChatInfo.isPinned },
     { "isArchived", p_ChatInfo.isArchived },
+    { "isInvite", p_ChatInfo.isInvite },
     { "lastActivity", lastActivity },
     { "lastMessage", (lastMessage != nullptr) ? MessageToJson(p_AccountId, p_ChatInfo.id, *lastMessage) : json() },
     { "typing", typing },

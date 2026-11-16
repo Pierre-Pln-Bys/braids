@@ -234,6 +234,17 @@ try {
   await last.locator('.chip.mine').click();
   await last.locator('.chip.mine').waitFor({ state: 'detached' });
   check(true, 'reaction removed');
+  // "+" opens all emoji (#46)
+  await last.hover();
+  await last.getByRole('button', { name: 'React', exact: true }).click();
+  check(await page.locator('.react-pop button').count() === 16, 'quick reactions: 15 and "+"');
+  await page.getByRole('button', { name: 'More reactions' }).click();
+  await page.locator('.react-full input[aria-label="Search emoji"]').fill('rocket');
+  await page.locator('.react-full .em', { hasText: '🚀' }).first().click();
+  await last.locator('.chip.mine', { hasText: '🚀' }).waitFor();
+  check(true, 'reaction from the full emoji picker');
+  await last.locator('.chip.mine').click();
+  await last.locator('.chip.mine').waitFor({ state: 'detached' });
 
   await composer.focus();
   await composer.press('ArrowUp');
@@ -553,9 +564,23 @@ try {
   await pamRow2.locator('.unread-count').waitFor({ state: 'detached' });
   check(true, 'opening clears the unread mark');
 
-  // Unread folder: only unread chats (and the open one while it is read)
+  // Unread folder: only unread chats (and the open one while it is read);
+  // switching to it closes the open chat when it is read (#44)
+  await page.locator('input[aria-label="Search chats"]').fill('pa');
   await page.keyboard.press('Control+u');
   await page.locator('.chatlist h2', { hasText: 'Unread' }).waitFor();
+  check(await page.locator('.conv header', { hasText: 'Pam' }).count() === 0 && await page.locator('.chatlist .row.selected').count() === 0,
+    'switching to Unread closes the read chat');
+  check((await page.locator('input[aria-label="Search chats"]').inputValue()) === '', 'switching folders clears the search');
+  // message search in a folder: its chats only, then all chats (#43)
+  await page.locator('input[aria-label="Search chats"]').fill('feared or loved');
+  await page.locator('.found h3', { hasText: 'Messages in Unread' }).waitFor();
+  await page.locator('.found .found-status', { hasText: 'No messages' }).waitFor();
+  check(await page.locator('.found .hit').count() === 0, 'message search in Unread: no read chats');
+  await page.getByRole('button', { name: 'Search all chats' }).click();
+  await page.locator('.found .hit', { hasText: 'Michael' }).first().waitFor();
+  check(await page.locator('.found h3').textContent() === 'Messages', 'Search all chats: results from every chat');
+  await page.locator('input[aria-label="Search chats"]').fill('');
   check(await page.locator('.chatlist .row:not(.selected)').count() >= 1 &&
     await page.locator('.chatlist .row:not(.selected):not(.unread)').count() === 0, 'Unread folder lists the unread chats');
   await kevinRow.click();
