@@ -4739,6 +4739,9 @@ void TgChat::Impl::GetMsgReactions(td::td_api::object_ptr<td::td_api::messageInt
 {
   p_Reactions.needConsolidationWithCache = true;
   p_Reactions.replaceCount = true;
+  // Telegram sends the current state: who reacted (at most three recent
+  // senders per emoji, none in big groups) replaces what was cached
+  p_Reactions.replaceSenders = true;
   auto messageReactions = td::move_tl_object_as<td::td_api::messageReactions>(p_InteractionInfo->reactions_);
   if (messageReactions)
   {
@@ -4758,17 +4761,21 @@ void TgChat::Impl::GetMsgReactions(td::td_api::object_ptr<td::td_api::messageInt
         {
           p_Reactions.senderEmojis[s_ReactionsSelfId] = reactionTypeEmoji->emoji_;
         }
-        else
+
+        // the recent senders by name in the reaction's tooltip (#48)
+        for (auto sit = messageReaction->recent_sender_ids_.begin();
+             sit != messageReaction->recent_sender_ids_.end(); ++sit)
         {
-          for (auto sit = messageReaction->recent_sender_ids_.begin();
-               sit != messageReaction->recent_sender_ids_.end(); ++sit)
+          const int64_t senderId = GetSenderId(td::move_tl_object_as<td::td_api::MessageSender>(*sit));
+          if (senderId == 0) continue;
+
+          if (IsSelf(senderId))
           {
-            const int64_t senderId = GetSenderId(td::move_tl_object_as<td::td_api::MessageSender>(*sit));
-            if (IsSelf(senderId))
-            {
-              p_Reactions.senderEmojis[s_ReactionsSelfId] = reactionTypeEmoji->emoji_;
-              break;
-            }
+            p_Reactions.senderEmojis[s_ReactionsSelfId] = reactionTypeEmoji->emoji_;
+          }
+          else
+          {
+            p_Reactions.senderEmojis[StrUtil::NumToHex(senderId)] = reactionTypeEmoji->emoji_;
           }
         }
       }

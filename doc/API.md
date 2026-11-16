@@ -1,7 +1,7 @@
 braidsd API
 ===========
 
-Status: draft, API version `0.15.0`. The API is JSON-RPC 2.0
+Status: draft, API version `0.16.0`. The API is JSON-RPC 2.0
 with one JSON object per line, served on a Unix socket and/or stdin/stdout.
 
 Transport
@@ -65,6 +65,7 @@ Objects
 
     {"accountId", "id", "name", "isGroup", "isUnread", "isUnreadMention",
      "unreadCount", "unreadEvents", "isMuted", "isPinned", "isArchived",
+     "isInvite": <invited, not joined yet (Matrix); messages.send fails until chats.join>,
      "lastActivity": <time of last message, -1 if unknown>,
      "lastMessage": Message | null, "typing": [userId]}
 

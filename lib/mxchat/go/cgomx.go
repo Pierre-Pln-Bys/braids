@@ -11,7 +11,7 @@ package main
 // #cgo darwin LDFLAGS: -Wl,-undefined,dynamic_lookup
 // #include <stdlib.h>
 // extern void MxNewContactsNotify(int p_ConnId, char* p_Id, char* p_Name, int p_IsSelf, int p_Notify);
-// extern void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, long long p_LastMessageTime);
+// extern void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, int p_IsInvite, long long p_LastMessageTime);
 // extern void MxNewMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe, char* p_QuotedId, char* p_FileId, char* p_FilePath, int p_FileStatus, long long p_TimeSent, int p_IsRead, int p_IsEdited, int p_Batch, char* p_Poll);
 // extern void MxNewPollNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_VoterId, char* p_OptionIdsJson, int p_Closed);
 // extern void MxNewMessagesBatchDone(int p_ConnId, char* p_ChatId, char* p_FromMsgId);
@@ -266,8 +266,8 @@ func CMxNewContactsNotify(connId int, userId string, name string, isSelf int, no
 	C.MxNewContactsNotify(C.int(connId), C.CString(userId), C.CString(name), C.int(isSelf), C.int(notify))
 }
 
-func CMxNewChatsNotify(connId int, chatId string, isUnread int, isMuted int, isPinned int, lastMessageTime int64) {
-	C.MxNewChatsNotify(C.int(connId), C.CString(chatId), C.int(isUnread), C.int(isMuted), C.int(isPinned), C.longlong(lastMessageTime))
+func CMxNewChatsNotify(connId int, chatId string, isUnread int, isMuted int, isPinned int, isInvite int, lastMessageTime int64) {
+	C.MxNewChatsNotify(C.int(connId), C.CString(chatId), C.int(isUnread), C.int(isMuted), C.int(isPinned), C.int(isInvite), C.longlong(lastMessageTime))
 }
 
 func CMxNewMessagesNotify(connId int, chatId string, msgId string, senderId string, text string, fromMe int, quotedId string, fileId string, filePath string, fileStatus int, timeSent int64, isRead int, isEdited int, batch int, poll string) {

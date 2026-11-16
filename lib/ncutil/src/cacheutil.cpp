@@ -36,7 +36,8 @@ std::string CacheUtil::MergePoll(const std::string& p_Old, const std::string& p_
 bool CacheUtil::IsDefaultReactions(const Reactions& p_Reactions)
 {
   return p_Reactions.senderEmojis.empty() && p_Reactions.emojiCounts.empty() &&
-         !p_Reactions.updateCountBasedOnSender && !p_Reactions.needConsolidationWithCache && !p_Reactions.replaceCount;
+         !p_Reactions.updateCountBasedOnSender && !p_Reactions.needConsolidationWithCache && !p_Reactions.replaceCount &&
+         !p_Reactions.replaceSenders;
 }
 
 // Debug helper
@@ -46,6 +47,7 @@ std::string CacheUtil::ReactionsToString(const Reactions& p_Reactions)
   sstream << "needConsolidation=" << p_Reactions.needConsolidationWithCache << " ";
   sstream << "updateCount=" << p_Reactions.updateCountBasedOnSender << " ";
   sstream << "replaceCount=" << p_Reactions.replaceCount << " ";
+  sstream << "replaceSenders=" << p_Reactions.replaceSenders << " ";
   sstream << "senderEmojis=[ ";
   for (const auto& senderEmoji : p_Reactions.senderEmojis)
   {
@@ -74,8 +76,9 @@ void CacheUtil::UpdateReactions(const Reactions& p_Source, Reactions& p_Target)
   LOG_INFO("target: %s", ReactionsToString(p_Target).c_str());
 #endif
 
-  // Update senderEmojis
-  std::map<std::string, std::string> combinedSenderEmojis = p_Source.senderEmojis;
+  // Update senderEmojis (a complete list replaces the cached one)
+  std::map<std::string, std::string> combinedSenderEmojis =
+    p_Target.replaceSenders ? std::map<std::string, std::string>() : p_Source.senderEmojis;
   for (const auto& senderEmoji : p_Target.senderEmojis)
   {
     if (senderEmoji.second.empty())
@@ -113,6 +116,7 @@ void CacheUtil::UpdateReactions(const Reactions& p_Source, Reactions& p_Target)
   p_Target.needConsolidationWithCache = false;
   p_Target.updateCountBasedOnSender = false;
   p_Target.replaceCount = false;
+  p_Target.replaceSenders = false;
 
 #ifdef DEBUG_UPDATE_REACTIONS
   LOG_INFO("result: %s", ReactionsToString(p_Target).c_str());

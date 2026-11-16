@@ -119,24 +119,38 @@ class Store {
     const favoritesFirst = settings.favorites !== 'folder' && f.kind !== 'favorites';
     const fav = (c: Chat) => (favoritesFirst && this.category(c) === 'favorite' ? 1 : 0);
     return Object.values(this.chats)
-      .filter((c) => this.accounts[c.accountId])
-      .filter((c) => (f.kind === 'archived' ? this.category(c) === 'archived' : this.category(c) !== 'archived'))
-      .filter((c) => f.kind !== 'favorites' || this.category(c) === 'favorite')
-      // the open chat stays while it is read
-      .filter((c) => f.kind !== 'unread' || (c.isUnread && !this.eventsOnly(c)) || chatKey(c.accountId, c.id) === this.current)
-      .filter((c) => f.kind !== 'account' || c.accountId === f.accountId)
+      // the open chat stays in Unread while it is read
+      .filter((c) => this.inFolder(c, f) || (f.kind === 'unread' && this.accounts[c.accountId] && this.category(c) !== 'archived' && chatKey(c.accountId, c.id) === this.current))
       .filter((c) => !q || this.chatName(c).toLowerCase().includes(q))
       .sort((a, b) => fav(b) - fav(a) || b.lastActivity - a.lastActivity);
   }
 
-  // a room the account is invited to and has not joined (Matrix): its only
-  // message is the local invite note ("invite:<room id>")
-  isInvite(c: Chat | undefined): boolean {
-    return !!c?.lastMessage?.id.startsWith('invite:');
+  // Whether a chat belongs to a folder (sidebar item)
+  inFolder(c: Chat, f: Filter = this.filter): boolean {
+    if (!this.accounts[c.accountId]) return false;
+    if ((f.kind === 'archived') !== (this.category(c) === 'archived')) return false;
+    if (f.kind === 'favorites') return this.category(c) === 'favorite';
+    if (f.kind === 'unread') return c.isUnread && !this.eventsOnly(c);
+    if (f.kind === 'account') return c.accountId === f.accountId;
+    return true;
   }
 
-  // only group events (joined, left, ...) are new: shown grey, not counted
-  // in folders or the tray, like a muted chat
+  // Switches the folder: the whole folder (no search), and the open chat
+  // closed unless it belongs there (#44)
+  setFilter(f: Filter) {
+    this.filter = f;
+    this.search = '';
+    const open = this.current ? this.chats[this.current] : undefined;
+    if (open && !this.inFolder(open, f)) this.closeChat();
+  }
+
+  // a room the account is invited to and has not joined (Matrix): its only
+  // message is the local invite note ("invite:<room id>")
+  // (braidsd's isInvite: the bar stays whatever the last message is, #45)
+  isInvite(c: Chat | undefined): boolean {
+    return !!(c?.isInvite ?? c?.lastMessage?.id.startsWith('invite:'));
+  }
+
   // A contact that is a person who can be added to a group. Matrix lists its
   // rooms as contacts too (direct chats named after the person, groups):
   // only user ids (@user:server) are people there; elsewhere groups are
@@ -147,6 +161,8 @@ class Store {
     return !this.chats[chatKey(accountId, c.id)]?.isGroup;
   }
 
+  // only group events (joined, left, ...) are new: shown grey, not counted
+  // in folders or the tray, like a muted chat
   eventsOnly(c: Chat): boolean {
     return c.isUnread && (c.unreadCount ?? 1) === 0 && (c.unreadEvents ?? 0) > 0;
   }
@@ -933,13 +949,26 @@ class Store {
   // offers it in a toast once per version.
   async checkUpdates(force = false): Promise<api.Update | null> {
     const KEY = 'braids.update.checked';
+    const LATEST = 'braids.update.latest'; // the last answer, for the starts in between
     try {
-      if (!force && Date.now() - Number(localStorage.getItem(KEY) ?? 0) < 24 * 3600 * 1000) return this.update;
+      if (!force && Date.now() - Number(localStorage.getItem(KEY) ?? 0) < 24 * 3600 * 1000) {
+        // not asked again yet: what the last check found, unless this app is
+        // that version (or newer) by now
+        const last = JSON.parse(localStorage.getItem(LATEST) ?? 'null') as api.Update | null;
+        const app = last ? await api.appVersion() : '';
+        this.update = last && app && api.newerVersion(last.version, app) ? last : null;
+        return this.update;
+      }
       localStorage.setItem(KEY, String(Date.now()));
     } catch {
       // no storage: check every start
     }
     this.update = await api.checkUpdate().catch(() => null);
+    try {
+      localStorage.setItem(LATEST, JSON.stringify(this.update));
+    } catch {
+      // asked again next start
+    }
     const u = this.update;
     if (u && !force) {
       let told = '';

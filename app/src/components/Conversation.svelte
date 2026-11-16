@@ -11,7 +11,7 @@
   revealed while scrolling up), so long chats stay fast.
 -->
 <script lang="ts">
-  import { ArrowDown, ChevronLeft, ChevronUp, EllipsisVertical, Lock, PanelRight, Pin, Search, Upload, X } from '@lucide/svelte';
+  import { ArrowDown, ChevronLeft, ChevronUp, EllipsisVertical, Lock, PanelRight, Pin, Plus, Search, Upload, X } from '@lucide/svelte';
   import { onDestroy, tick, untrack } from 'svelte';
   import { chatMenu } from '../lib/actions';
   import * as api from '../lib/api';
@@ -22,6 +22,7 @@
   import type { Message } from '../lib/types';
   import { ui } from '../lib/ui.svelte';
   import Avatar from './Avatar.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
   import InviteBar from './InviteBar.svelte';
   import SelectionBar from './SelectionBar.svelte';
   import Composer from './Composer.svelte';
@@ -70,7 +71,17 @@
   let searchFrom = $state('');
   let searchStatus = $state('');
   let searchInput: HTMLInputElement | undefined = $state();
-  let reactFor = $state<{ m: Message; x: number; y: number; above: boolean; emojis: string[] } | null>(null);
+  // the reaction picker: a quick row, "+" opens all emoji (#46); limited:
+  // the chat allows only these (Telegram)
+  let reactFor = $state<{ m: Message; x: number; y: number; above: boolean; emojis: string[]; limited: boolean; full: boolean } | null>(null);
+  const QUICK_REACTIONS = 16;
+  const quickReactions = $derived.by(() => {
+    if (!reactFor) return { emojis: [] as string[], more: false };
+    const all = reactFor.emojis;
+    // the last place is "+", unless a limited chat's reactions all fit
+    if (reactFor.limited && all.length <= QUICK_REACTIONS) return { emojis: all, more: false };
+    return { emojis: all.slice(0, QUICK_REACTIONS - 1), more: true };
+  });
   let lastKey = '';
   let lastCount = 0;
   let lastNewestId = '';
@@ -325,10 +336,13 @@
     const fallback = ['👍', '👎', '❤️', '🔥', '🎉', '😂', '😮', '😢', '😡', '🙏', '👏', '🤔', '💯', '👀', '✅', '🙌'];
     // below the button, or above it near the bottom of the window
     const above = r.bottom + 220 > window.innerHeight;
-    reactFor = { m, x: r.left, y: above ? r.top - 6 : r.bottom + 6, above, emojis: fallback };
+    reactFor = { m, x: r.left, y: above ? r.top - 6 : r.bottom + 6, above, emojis: fallback, limited: false, full: false };
     try {
       const res = await api.call('reactions.available', { accountId, chatId, msgId: m.id });
-      if (reactFor?.m.id === m.id && res.emojis?.length) reactFor.emojis = res.emojis;
+      if (reactFor?.m.id === m.id && res.emojis?.length) {
+        reactFor.emojis = res.emojis;
+        reactFor.limited = !!res.limited;
+      }
     } catch {
       // keep the default set
     }
@@ -493,13 +507,24 @@
 
     {#if reactFor}
       <div class="react-scrim" role="presentation" onclick={() => (reactFor = null)}></div>
-      <div class="react-pop" role="dialog" aria-label="Reactions"
-        style:left="{Math.min(reactFor.x, ui.width - 300) / (api.isTauri ? 1 : settings.textSize / 100)}px"
-        style:top="{reactFor.y / (api.isTauri ? 1 : settings.textSize / 100)}px" class:above={reactFor.above}>
-        {#each reactFor.emojis as e}
-          <button class:mine={reactFor.m.reactions.own === e} onclick={() => sendReaction(e)}>{e}</button>
-        {/each}
-      </div>
+      {#if reactFor.full}
+        <div class="react-full" class:above={reactFor.above}
+          style:left="{Math.min(reactFor.x, ui.width - 352) / (api.isTauri ? 1 : settings.textSize / 100)}px"
+          style:top="{(reactFor.above ? reactFor.y : Math.min(reactFor.y, window.innerHeight - 390)) / (api.isTauri ? 1 : settings.textSize / 100)}px">
+          <EmojiPicker inline only={reactFor.limited ? reactFor.emojis : undefined} onPick={sendReaction} onClose={() => (reactFor = null)} />
+        </div>
+      {:else}
+        <div class="react-pop" role="dialog" aria-label="Reactions"
+          style:left="{Math.min(reactFor.x, ui.width - 300) / (api.isTauri ? 1 : settings.textSize / 100)}px"
+          style:top="{reactFor.y / (api.isTauri ? 1 : settings.textSize / 100)}px" class:above={reactFor.above}>
+          {#each quickReactions.emojis as e}
+            <button class:mine={reactFor.m.reactions.own === e} onclick={() => sendReaction(e)}>{e}</button>
+          {/each}
+          {#if quickReactions.more}
+            <button class="react-more" aria-label="More reactions" title="More reactions" onclick={() => reactFor && (reactFor.full = true)}><Plus size={18} /></button>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </main>
 {/if}
@@ -566,7 +591,9 @@
     position: fixed; z-index: 31; width: 288px; max-height: 240px; overflow-y: auto; padding: 8px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
   }
-  .react-pop.above { transform: translateY(-100%); }
+  .react-pop.above, .react-full.above { transform: translateY(-100%); }
+  .react-full { position: fixed; z-index: 31; }
+  .react-more { display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
   .react-pop button { border: 0; background: none; height: 32px; border-radius: 6px; font-size: 18px; padding: 0; }
   .react-pop button:hover { background: var(--hover); }
   .react-pop button.mine { background: var(--accent-soft); }

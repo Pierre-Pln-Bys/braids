@@ -76,7 +76,10 @@ runs braidsd from a cache copy, it outlives the mount);
 `utils/dist/install.sh` installs the tarball per user; tag `v*` runs
 `.github/workflows/release.yml` (both arches, all formats; release notes are
 the version's section of `CHANGELOG.md`: add user-facing changes under
-`[Unreleased]` and rename it to the version before tagging, then run
+`[Unreleased]` and rename it to the version before tagging, bump the version
+in `app/package.json` (+ lock), `app/src-tauri/Cargo.toml` (+ lock) and
+`app/src-tauri/tauri.conf.json` (braidsd takes its version from the last one,
+`lib/ncutil/CMakeLists.txt`), then run
 `utils/dist/flatpak/update-releases` (the metainfo's release list, checked
 by the workflow)). Nix: `flake.nix` / `nix/package.nix` wrap the release tarball, version and
 checksums in `nix/release.json` (`utils/dist/nix-update`, committed to main
@@ -155,6 +158,11 @@ Scheduled-later features are in `doc/BACKLOG.md`.
   to AAC first (`voice::to_aac`, Signal on iPhone plays no Ogg).
 - Chat list keyboard: one highlight (`ui.listCursor`, `ui.list`), Alt+J/K
   move it, Enter opens.
+- Links: `api.openUrl` → `open_link` (src-tauri/src/lib.rs), GIO with GDK's
+  launch context so the browser gets an activation token / startup id and
+  comes to the front; the opener plugin is the fallback.
+- Matrix invites: `ChatInfo.isInvite` (mxchat `RoomInfo.IsInvite`), API
+  `chat.isInvite`; the app shows `InviteBar`, `messages.send` refuses.
 - Group members: `EditMembersRequest` / `EditMembersNotify` (protocol.h,
   `FeatureEditMembers`, Matrix only: invite / kick), API `members.add`,
   `members.remove`, `members.edited`; `NewGroupMembersNotify.canAdd` /

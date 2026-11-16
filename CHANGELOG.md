@@ -6,6 +6,36 @@ release workflow publishes the section of a version as its release notes.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-16
+
+### New
+- Reactions: the last place in the reaction row is "+", which opens all
+  emoji (only the allowed ones in Telegram chats that limit reactions).
+  (#46)
+
+### Changed
+- Links open in your browser and bring it to the front (KDE, X11 window
+  managers and others kept it behind braids). (#41)
+- Switching folders in the sidebar clears the search and closes the open
+  chat when it does not belong to the new folder (e.g. a read chat when
+  you switch to Unread). (#44)
+- Searching messages in a folder (Unread, Favorites, Archived, an account)
+  finds them in that folder's chats; "Search all chats" widens it. (#43)
+- A dot on the Settings button (and on Settings → About) when a newer
+  braids version is available; Settings then opens on About.
+- Settings → About shows the app's version next to the core's.
+
+### Fixed
+- Telegram: hovering a reaction shows who reacted (up to three recent
+  people, "and N more"), not just the number. (#48)
+- Matrix: a room you are invited to keeps its Join / Decline bar until
+  you join or decline; sending there says to join first instead of
+  failing. (#45)
+- Settings → About said "Core 0.3.2" since 0.3.2: the core's version was
+  not updated with the app's. Both now come from the same place.
+- The update notice in Settings → About disappeared after restarting
+  braids until the next daily check.
+
 ## [0.3.5] - 2026-11-13
 
 ### New

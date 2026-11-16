@@ -239,6 +239,7 @@ struct ChatInfo
   bool isMuted = false;
   bool isPinned = false;
   bool isArchived = false;
+  bool isInvite = false; // braids extension: invited, not joined yet (Matrix)
   int64_t lastMessageTime = -1;
 };
 
@@ -266,6 +267,7 @@ struct Reactions
   bool needConsolidationWithCache = false; // true = need consolidation with cache before usage
   bool updateCountBasedOnSender = false; // true = need to update emojiCount based on senderEmoji
   bool replaceCount = false; // true = replace emoji counts
+  bool replaceSenders = false; // true = senderEmojis is the complete list, replacing the cached one (braids extension)
   std::map<std::string, std::string> senderEmojis;
   std::map<std::string, size_t> emojiCounts;
 

@@ -209,6 +209,32 @@ fn system_info() -> SystemInfo {
     }
 }
 
+/// Opens a web link in the default browser and brings it to the front (#41):
+/// through GIO with GDK's launch context, which hands the browser a startup
+/// id (X11) or an xdg-activation token (Wayland) — xdg-open passes neither,
+/// so KDE and others keep the browser behind braids. In a Flatpak GIO goes
+/// through the OpenURI portal, which passes the token too. Not async: Tauri
+/// runs it on the main (GTK) thread. Only http(s) and mailto links.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto") {
+        return Err(format!("not a web link: {}", parsed.scheme()));
+    }
+    launch_uri(parsed.as_str())
+}
+
+#[cfg(target_os = "linux")]
+fn launch_uri(uri: &str) -> Result<(), String> {
+    let context = gtk::gdk::Display::default().and_then(|d| d.app_launch_context());
+    gtk::gio::AppInfo::launch_default_for_uri(uri, context.as_ref()).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn launch_uri(_uri: &str) -> Result<(), String> {
+    Err("not supported".into())
+}
+
 #[tauri::command]
 fn daemon_connected(state: State<'_, AppState>) -> bool {
     state.daemon.is_connected()
@@ -447,7 +473,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![api_call, daemon_connected, set_close_to_tray, set_badge, save_temp_file, save_file_as, licenses_path, voice_start, voice_stop, voice_to_aac, link_preview, check_update, install_kind, system_info])
+        .invoke_handler(tauri::generate_handler![api_call, daemon_connected, set_close_to_tray, set_badge, save_temp_file, save_file_as, licenses_path, voice_start, voice_stop, voice_to_aac, link_preview, check_update, install_kind, system_info, open_link])
         .run(tauri::generate_context!())
         .expect("error while running braids");
 }

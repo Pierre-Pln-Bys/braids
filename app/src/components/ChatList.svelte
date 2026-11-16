@@ -138,27 +138,55 @@
   let finding = $state(false);
   let searchGen = 0;
   const msgQuery = $derived(store.search.trim().length >= 2 ? store.search.trim() : '');
+  // the messages of the folder's chats (#43), or of all chats after "Search all chats"
+  let searchAll = $state(false);
+  const folderScoped = $derived(store.filter.kind !== 'all' && !searchAll);
 
   $effect(() => {
     const q = msgQuery;
-    const scope = store.filter.kind === 'account' ? store.filter.accountId : '';
+    void store.filter;
     untrack(() => {
-      const gen = ++searchGen;
-      found = [];
-      foundNext = 0;
-      finding = !!q;
-      if (!q) return;
-      setTimeout(() => gen === searchGen && findMessages(q, scope, 0, gen), 250);
+      searchAll = false;
+      restartSearch(q);
     });
   });
 
-  async function findMessages(q: string, scope: string, before: number, gen: number) {
+  function restartSearch(q: string) {
+    const gen = ++searchGen;
+    found = [];
+    foundNext = 0;
+    finding = !!q;
+    if (!q) return;
+    setTimeout(() => gen === searchGen && findMessages(q, 0, gen), 250);
+  }
+
+  function widenSearch() {
+    searchAll = true;
+    restartSearch(msgQuery);
+  }
+
+  // a message the current search shows: in a listed chat of the folder
+  function inScope(m: Message): boolean {
+    const c = store.chats[chatKey(m.accountId, m.chatId)];
+    return !!c && (!folderScoped || store.inFolder(c));
+  }
+
+  async function findMessages(q: string, before: number, gen: number) {
     finding = true;
+    const scope = folderScoped && store.filter.kind === 'account' ? store.filter.accountId : '';
     try {
-      const r = await api.call('messages.search', { text: q, limit: 30, ...(scope ? { accountId: scope } : {}), ...(before ? { beforeTime: before } : {}) });
-      if (gen !== searchGen) return;
-      found = [...found, ...(r.items as Message[]).filter((m) => store.chats[chatKey(m.accountId, m.chatId)])];
-      foundNext = r.nextBefore;
+      // a folder keeps few of a page: more pages until there are some
+      let next = before;
+      let hits: Message[] = [];
+      for (let page = 0; page < 5; page++) {
+        const r = await api.call('messages.search', { text: q, limit: 30, ...(scope ? { accountId: scope } : {}), ...(next ? { beforeTime: next } : {}) });
+        if (gen !== searchGen) return;
+        hits = [...hits, ...(r.items as Message[]).filter(inScope)];
+        next = r.nextBefore;
+        if (!next || hits.length >= 10 || !folderScoped) break;
+      }
+      found = [...found, ...hits];
+      foundNext = next;
     } catch {
       if (gen === searchGen) foundNext = 0;
     } finally {
@@ -167,7 +195,7 @@
   }
 
   function moreMessages() {
-    if (!finding && foundNext) findMessages(msgQuery, store.filter.kind === 'account' ? store.filter.accountId : '', foundNext, searchGen);
+    if (!finding && foundNext) findMessages(msgQuery, foundNext, searchGen);
   }
 
   function openFound(m: Message) {
@@ -426,7 +454,7 @@
 
     {#if msgQuery}
       <div class="found" aria-label="Messages">
-        <h3>Messages</h3>
+        <h3>Messages{#if folderScoped}{` in ${title}`}{/if}</h3>
         {#each found as m (`${m.accountId}\u0001${m.chatId}\u0001${m.id}`)}
           {@const c = store.chats[chatKey(m.accountId, m.chatId)]}
           {@const sn = snippet(m.text, msgQuery)}
@@ -445,6 +473,9 @@
         {:else if foundNext}
           <button class="more" onclick={moreMessages}>More results</button>
         {/if}
+        {#if folderScoped && !finding}
+          <button class="more" onclick={widenSearch}><Search size={14} />Search all chats</button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -461,7 +492,7 @@
   .hit-text { font-size: 13px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .hit-text mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; font-weight: 600; }
   .found-status { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: var(--text-muted); margin: 8px 12px; }
-  .more { display: block; margin: 6px auto 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
+  .more { display: flex; align-items: center; gap: 4px; margin: 6px auto 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
   .chatlist { width: var(--chatlist-w, 330px); flex-shrink: 0; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
   .head { padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 10px; }
   .title-row { display: flex; align-items: center; gap: 6px; }

@@ -25,7 +25,10 @@
   import { onMount, tick } from 'svelte';
   import { loadEmoji, type Emoji } from '../lib/emoji';
 
-  let { onPick, onClose }: { onPick: (emoji: string) => void; onClose: () => void } = $props();
+  // only: just these emoji (the reactions a chat allows); inline: placed by
+  // the parent instead of above the composer's emoji button
+  let { onPick, onClose, only, inline = false }: { onPick: (emoji: string) => void; onClose: () => void; only?: string[]; inline?: boolean } = $props();
+  const allowed = $derived(only ? new Set(only) : null);
   let root: HTMLDivElement | undefined = $state();
 
   function onOutside(e: PointerEvent) {
@@ -61,12 +64,14 @@
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const words = q.split(/\s+/);
-    return all.filter((e) => words.every((w) => e.label.includes(w) || e.tags?.some((t) => t.startsWith(w)))).slice(0, 160);
+    return all.filter((e) => (!allowed || allowed.has(e.unicode)) && words.every((w) => e.label.includes(w) || e.tags?.some((t) => t.startsWith(w)))).slice(0, 160);
   });
 
   const sections = $derived(
-    GROUPS.map((g) => ({ ...g, items: g.id === -1 ? recents : all.filter((e) => e.group === g.id).map((e) => e.unicode) }))
-      .filter((s) => s.items.length));
+    only
+      ? [{ id: -2, label: 'Allowed in this chat', icon: Smile, items: only }]
+      : GROUPS.map((g) => ({ ...g, items: g.id === -1 ? recents : all.filter((e) => e.group === g.id).map((e) => e.unicode) }))
+        .filter((s) => s.items.length));
 
   const labels = $derived(new Map(all.map((e) => [e.unicode, e.label])));
 
@@ -99,12 +104,12 @@
 
 <svelte:window onpointerdown={onOutside} />
 
-<div class="picker" role="dialog" aria-label="Emoji picker" bind:this={root}>
+<div class="picker" class:inline role="dialog" aria-label="Emoji picker" bind:this={root}>
   <label class="find">
     <Search size={15} />
     <input bind:this={searchInput} bind:value={query} placeholder="Search emoji" aria-label="Search emoji" onkeydown={onKey} />
   </label>
-  {#if !query.trim()}
+  {#if !query.trim() && !only}
     <div class="tabs">
       {#each sections as s (s.id)}
         <button class="tab" title={s.label} aria-label={s.label} onclick={() => jump(s.id)}><s.icon size={16} /></button>
@@ -142,6 +147,7 @@
     position: absolute; bottom: 46px; right: 0; width: 340px; height: 380px; display: flex; flex-direction: column; gap: 6px; padding: 8px;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-2); z-index: 10;
   }
+  .picker.inline { position: static; }
   .find { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
   .find input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 13px; }
   .tabs { display: flex; justify-content: space-between; }

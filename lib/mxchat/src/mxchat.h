@@ -100,7 +100,7 @@ private:
 
 extern "C" {
 void MxNewContactsNotify(int p_ConnId, char* p_Id, char* p_Name, int p_IsSelf, int p_Notify);
-void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned,
+void MxNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMuted, int p_IsPinned, int p_IsInvite,
                       long long p_LastMessageTime);
 void MxNewMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe,
                          char* p_QuotedId, char* p_FileId, char* p_FilePath, int p_FileStatus, long long p_TimeSent,

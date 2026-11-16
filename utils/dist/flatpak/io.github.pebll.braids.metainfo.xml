@@ -83,6 +83,21 @@
     <binary>braids</binary>
   </provides>
   <releases>
+    <release version="0.3.6" date="2026-11-16">
+      <url>https://github.com/pebll/braids/releases/tag/v0.3.6</url>
+      <description>
+        <ul>
+          <li>Reactions: the last place in the reaction row is "+", which opens all emoji (only the allowed ones in Telegram chats that limit reactions).</li>
+          <li>Links open in your browser and bring it to the front (KDE, X11 window managers and others kept it behind braids).</li>
+          <li>Switching folders in the sidebar clears the search and closes the open chat when it does not belong to the new folder (e.g.</li>
+          <li>Searching messages in a folder (Unread, Favorites, Archived, an account) finds them in that folder's chats; "Search all chats" widens it.</li>
+          <li>A dot on the Settings button (and on Settings → About) when a newer braids version is available; Settings then opens on About.</li>
+          <li>Settings → About shows the app's version next to the core's.</li>
+          <li>Telegram: hovering a reaction shows who reacted (up to three recent people, "and N more"), not just the number.</li>
+          <li>Matrix: a room you are invited to keeps its Join / Decline bar until you join or decline; sending there says to join first instead of failing.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.5" date="2026-11-13">
       <url>https://github.com/pebll/braids/releases/tag/v0.3.5</url>
       <description>
