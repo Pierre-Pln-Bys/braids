@@ -6,6 +6,8 @@ release workflow publishes the section of a version as its release notes.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-16
+
 ### New
 - Reactions: the last place in the reaction row is "+", which opens all
   emoji (only the allowed ones in Telegram chats that limit reactions).
